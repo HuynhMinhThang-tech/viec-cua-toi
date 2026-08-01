@@ -1172,7 +1172,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [device, setDevice] = useState("web");
+  const [device, setDevice] = useState(() =>
+     typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches ? "mobile" : "web"
+   );
   const [input, setInput] = useState("");
   const [newTaskNeedsResult, setNewTaskNeedsResult] = useState(false);
   const [newTaskExpectedNote, setNewTaskExpectedNote] = useState("");
