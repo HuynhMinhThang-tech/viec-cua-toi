@@ -1172,9 +1172,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [device, setDevice] = useState(() =>
-     typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches ? "mobile" : "web"
-   );
+  const [device, setDevice] = useState(detectDevice);
   const [input, setInput] = useState("");
   const [newTaskNeedsResult, setNewTaskNeedsResult] = useState(false);
   const [newTaskExpectedNote, setNewTaskExpectedNote] = useState("");
@@ -1339,6 +1337,14 @@ export default function App() {
     });
     return Object.entries(groups).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [doneTasks]);
+
+  function detectDevice() {
+  if (typeof window === "undefined") return "web";
+  const ua = navigator.userAgent || "";
+  const isPhoneUA = /iPhone|iPod|Android.*Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+  const isNarrowScreen = window.matchMedia("(max-width: 768px)").matches;
+  return isPhoneUA || isNarrowScreen ? "mobile" : "web";
+  }
 
   const statusChartData = useMemo(
     () => [
