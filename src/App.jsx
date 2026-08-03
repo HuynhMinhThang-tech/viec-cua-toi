@@ -5,6 +5,7 @@ import {
   Archive,
   Plus,
   Trash2,
+  Pencil,
   RotateCcw,
   Monitor,
   Smartphone,
@@ -34,7 +35,6 @@ import {
   CartesianGrid,
   LabelList,
 } from "recharts";
-import { supabase } from "./supabaseClient";
 
 /* ---------- design tokens ---------- */
 const C = {
@@ -58,8 +58,21 @@ const MONTHS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const DAY_MS = 86400000;
 const DOING_FUSE_MS = 3 * DAY_MS; // reference length for the "doing" progress fuse
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+// Formats a Date (or anything Date-parseable) as YYYY-MM-DD using the LOCAL
+// timezone/calendar day, not UTC. toISOString() always converts to UTC first,
+// which silently shifts the date backwards for any local time before the UTC
+// offset catches up (e.g. in UTC+7, anything before 07:00 local still reads
+// as "yesterday" once converted to UTC) — that was the bug where a 7am
+// schedule update showed up as the previous day on the dashboard.
+function localISODate(dateLike = new Date()) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return localISODate(new Date());
 }
 function formatVN(iso) {
   if (!iso) return "—";
@@ -84,6 +97,17 @@ function formatDuration(ms) {
   return `${minutes} phút`;
 }
 
+// Detects whether the app should default to the mobile ("App") layout.
+// Checks the user agent (catches iPhone/Android Safari even if the viewport
+// width is misreported) as well as screen width, so it's reliable across browsers.
+function detectDevice() {
+  if (typeof window === "undefined") return "web";
+  const ua = navigator.userAgent || "";
+  const isPhoneUA = /iPhone|iPod|Android.*Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+  const isNarrowScreen = window.matchMedia("(max-width: 768px)").matches;
+  return isPhoneUA || isNarrowScreen ? "mobile" : "web";
+}
+
 const STATUS = {
   todo: { label: "Chưa thực hiện", color: C.amber, soft: C.amberSoft, Icon: Circle },
   doing: { label: "Đang thực hiện", color: C.teal, soft: C.tealSoft, Icon: Clock3 },
@@ -102,7 +126,7 @@ const seedTasks = [
     id: 1,
     title: "Soạn báo cáo tuần cho quản lý",
     status: "doing",
-    createdAt: tsDaysAgo(5).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(5)),
     startedAt: tsDaysAgo(4),
     completedAt: null,
     completedAtTs: null,
@@ -114,7 +138,7 @@ const seedTasks = [
     id: 2,
     title: "Đặt lịch khám sức khỏe định kỳ",
     status: "todo",
-    createdAt: tsDaysAgo(3).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(3)),
     startedAt: null,
     completedAt: null,
     completedAtTs: null,
@@ -126,21 +150,21 @@ const seedTasks = [
     id: 3,
     title: "Mua quà sinh nhật cho mẹ",
     status: "done",
-    createdAt: tsDaysAgo(4).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(4)),
     startedAt: tsDaysAgo(3),
-    completedAt: tsDaysAgo(1).slice(0, 10),
+    completedAt: localISODate(tsDaysAgo(1)),
     completedAtTs: new Date(tsDaysAgo(1)).getTime(),
     requiresResult: true,
     expectedNote: "Chụp ảnh hoặc ghi chú xác nhận đã mua và gói quà xong.",
-    result: { text: "Đã mua ví da tặng mẹ và gói quà xong.", fileName: "vi-da-tang-me.jpg", fileUrl: null, isImage: false },
+    result: { text: "Đã mua ví da tặng mẹ và gói quà xong.", files: [{ id: "seed-1", fileName: "vi-da-tang-me.jpg", fileUrl: null, isImage: false }] },
   },
   {
     id: 4,
     title: "Dọn dẹp lại góc làm việc",
     status: "done",
-    createdAt: tsDaysAgo(6).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(6)),
     startedAt: tsDaysAgo(5),
-    completedAt: tsDaysAgo(1).slice(0, 10),
+    completedAt: localISODate(tsDaysAgo(1)),
     completedAtTs: new Date(tsDaysAgo(1, 6)).getTime(),
     requiresResult: false,
     expectedNote: null,
@@ -150,9 +174,9 @@ const seedTasks = [
     id: 5,
     title: "Trả sách đã mượn ở thư viện",
     status: "done",
-    createdAt: tsDaysAgo(9).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(9)),
     startedAt: tsDaysAgo(7),
-    completedAt: tsDaysAgo(5).slice(0, 10),
+    completedAt: localISODate(tsDaysAgo(5)),
     completedAtTs: new Date(tsDaysAgo(5)).getTime(),
     requiresResult: false,
     expectedNote: null,
@@ -162,7 +186,7 @@ const seedTasks = [
     id: 6,
     title: "Lên kế hoạch chi tiêu tháng tới",
     status: "todo",
-    createdAt: tsDaysAgo(1).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(1)),
     startedAt: null,
     completedAt: null,
     completedAtTs: null,
@@ -174,7 +198,7 @@ const seedTasks = [
     id: 7,
     title: "Ôn tập tiếng Anh 30 phút",
     status: "doing",
-    createdAt: tsDaysAgo(1).slice(0, 10),
+    createdAt: localISODate(tsDaysAgo(1)),
     startedAt: tsDaysAgo(0, 2),
     completedAt: null,
     completedAtTs: null,
@@ -183,88 +207,6 @@ const seedTasks = [
     result: null,
   },
 ];
-
-/* ==================== Supabase data layer ==================== */
-// Converts a DB row (snake_case, task_results as a nested array) into the
-// camelCase task shape the rest of the app already works with.
-function mapRow(row) {
-  const r = Array.isArray(row.task_results) ? row.task_results[0] : row.task_results;
-  return {
-    id: row.id,
-    title: row.title,
-    status: row.status,
-    requiresResult: row.requires_result,
-    expectedNote: row.expected_note,
-    createdAt: row.created_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-    completedAtTs: row.completed_at_ts ? new Date(row.completed_at_ts).getTime() : null,
-    result: r ? { text: r.text, fileName: r.file_name, fileUrl: r.file_url, isImage: r.is_image } : null,
-  };
-}
-
-async function dbFetchTasks() {
-  const { data, error } = await supabase
-    .from("tasks")
-    .select("*, task_results(*)")
-    .order("inserted_at", { ascending: false });
-  if (error) throw error;
-  return data.map(mapRow);
-}
-
-async function dbInsertTask(task) {
-  const { data, error } = await supabase
-    .from("tasks")
-    .insert({
-      title: task.title,
-      status: task.status,
-      requires_result: task.requiresResult,
-      expected_note: task.expectedNote,
-      created_at: task.createdAt,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return mapRow(data);
-}
-
-async function dbUpdateTaskStatus(id, { status, startedAt, completedAt, completedAtTs }) {
-  const { error } = await supabase
-    .from("tasks")
-    .update({ status, started_at: startedAt, completed_at: completedAt, completed_at_ts: completedAtTs ? new Date(completedAtTs).toISOString() : null })
-    .eq("id", id);
-  if (error) throw error;
-}
-
-async function dbUpsertResult(taskId, result) {
-  const { error } = await supabase.from("task_results").upsert({
-    task_id: taskId,
-    text: result.text || null,
-    file_name: result.fileName || null,
-    file_url: result.fileUrl || null,
-    is_image: result.isImage || false,
-  });
-  if (error) throw error;
-}
-
-async function dbDeleteTask(id) {
-  const { error } = await supabase.from("tasks").delete().eq("id", id);
-  if (error) throw error;
-}
-
-// Uploads a File to the "task-files" storage bucket and returns a public URL.
-// Falls back to a local (non-persistent) preview URL if the bucket isn't set up yet.
-async function uploadResultFile(file) {
-  const isImage = file.type.startsWith("image/");
-  const path = `${Date.now()}-${file.name}`;
-  const { error } = await supabase.storage.from("task-files").upload(path, file);
-  if (error) {
-    console.warn("Tải tệp lên Supabase Storage thất bại, dùng xem trước cục bộ:", error.message);
-    return { fileName: file.name, fileUrl: isImage ? URL.createObjectURL(file) : null, isImage };
-  }
-  const { data } = supabase.storage.from("task-files").getPublicUrl(path);
-  return { fileName: file.name, fileUrl: isImage ? data.publicUrl : null, isImage };
-}
 
 /* ==================== small presentational pieces (all module-scope: stable identity) ==================== */
 
@@ -496,7 +438,7 @@ function NoteField({ value, onChange, label, placeholder }) {
 }
 
 /* shared description + file dropzone, used at the completion review step */
-function ResultEditor({ idPrefix, text, onTextChange, fileName, fileUrl, isImage, onPickFile, onRemoveFile, placeholder }) {
+function ResultEditor({ idPrefix, text, onTextChange, files, onAddFiles, onRemoveFile, placeholder }) {
   return (
     <div>
       <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>
@@ -541,79 +483,94 @@ function ResultEditor({ idPrefix, text, onTextChange, fileName, fileUrl, isImage
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, color: C.ink }}>
-            {fileName ? "Đổi tệp khác" : "Chọn tệp minh chứng (không bắt buộc)"}
+            {files.length > 0 ? "Thêm tệp khác" : "Chọn tệp minh chứng (không bắt buộc)"}
           </div>
-          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: C.inkFaint, marginTop: 1 }}>Hình ảnh, Word hoặc PDF</div>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: C.inkFaint, marginTop: 1 }}>
+            Có thể chọn nhiều tệp · Hình ảnh, Word hoặc PDF
+          </div>
         </div>
       </label>
       <input
         id={`${idPrefix}-file-input`}
         type="file"
         accept="image/*,.doc,.docx,.pdf"
-        onChange={(e) => onPickFile(e.target.files[0] || null)}
+        multiple
+        onChange={(e) => {
+          onAddFiles(e.target.files);
+          e.target.value = "";
+        }}
         style={{ display: "none" }}
       />
 
-      {isImage && fileUrl && (
-        <img src={fileUrl} alt={fileName || "minh chứng"} style={{ width: "100%", maxHeight: 150, objectFit: "cover", borderRadius: 10, marginTop: 10 }} />
-      )}
-      {fileName && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginTop: isImage && fileUrl ? 6 : 10,
-            padding: "7px 10px",
-            border: `1px solid ${C.line}`,
-            borderRadius: 10,
-            background: C.paper,
-          }}
-        >
-          <div
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: 7,
-              background: C.tealSoft,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            {isImage ? <ImageIcon size={13} color={C.teal} strokeWidth={2.2} /> : <FileText size={13} color={C.teal} strokeWidth={2.2} />}
-          </div>
-          <div
-            style={{
-              fontFamily: "Inter, sans-serif",
-              fontSize: 11.5,
-              color: C.ink,
-              flex: 1,
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {fileName}
-          </div>
-          <button
-            onClick={onRemoveFile}
-            title="Bỏ chọn tệp"
-            style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 3, flexShrink: 0 }}
-          >
-            <X size={13} />
-          </button>
+      {files.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+          {files.map((f) => (
+            <div key={f.id}>
+              {f.isImage && f.fileUrl && (
+                <img
+                  src={f.fileUrl}
+                  alt={f.fileName || "minh chứng"}
+                  style={{ width: "100%", maxHeight: 150, objectFit: "cover", borderRadius: 10, marginBottom: 6 }}
+                />
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "7px 10px",
+                  border: `1px solid ${C.line}`,
+                  borderRadius: 10,
+                  background: C.paper,
+                }}
+              >
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 7,
+                    background: C.tealSoft,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {f.isImage ? <ImageIcon size={13} color={C.teal} strokeWidth={2.2} /> : <FileText size={13} color={C.teal} strokeWidth={2.2} />}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 11.5,
+                    color: C.ink,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {f.fileName}
+                </div>
+                <button
+                  onClick={() => onRemoveFile(f.id)}
+                  title="Bỏ tệp này"
+                  style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 3, flexShrink: 0 }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function ResultModal({ task, resultDraft, onTextChange, onPickFile, onRemoveFile, onCancel, onConfirm }) {
+function ResultModal({ task, resultDraft, onTextChange, onAddFiles, onRemoveFile, onCancel, onConfirm }) {
   if (!task) return null;
-  const canConfirm = resultDraft.text.trim().length > 0 || !!resultDraft.fileName;
+  const canConfirm = resultDraft.text.trim().length > 0 || resultDraft.files.length > 0;
   return (
     <div
       style={{
@@ -680,10 +637,8 @@ function ResultModal({ task, resultDraft, onTextChange, onPickFile, onRemoveFile
           idPrefix="complete-task"
           text={resultDraft.text}
           onTextChange={onTextChange}
-          fileName={resultDraft.fileName}
-          fileUrl={resultDraft.fileUrl}
-          isImage={resultDraft.isImage}
-          onPickFile={onPickFile}
+          files={resultDraft.files}
+          onAddFiles={onAddFiles}
           onRemoveFile={onRemoveFile}
           placeholder="Mô tả kết quả đạt được..."
         />
@@ -722,6 +677,155 @@ function ResultModal({ task, resultDraft, onTextChange, onPickFile, onRemoveFile
             }}
           >
             Xác nhận hoàn thành
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditTaskModal({ task, draft, onTitleChange, onToggleNeedsResult, onExpectedNoteChange, onCancel, onConfirm }) {
+  if (!task) return null;
+  const canConfirm = draft.title.trim().length > 0;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(32,38,31,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 50,
+      }}
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: C.tealSoft,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Pencil size={17} color={C.teal} strokeWidth={2.2} />
+          </div>
+          <div>
+            <div style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, color: C.ink }}>Chỉnh sửa công việc</div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Tên công việc</label>
+          <textarea
+            value={draft.title}
+            onChange={(e) => onTitleChange(e.target.value)}
+            placeholder="Nhập tên công việc..."
+            rows={3}
+            style={{
+              width: "100%",
+              marginTop: 6,
+              border: `1.5px solid ${C.line}`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 13,
+              color: C.ink,
+              resize: "vertical",
+              outline: "none",
+              boxSizing: "border-box",
+              background: C.paper,
+              whiteSpace: "pre-wrap",
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: draft.requiresResult ? 10 : 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Khi hoàn thành:</span>
+            <div style={{ display: "inline-flex", background: "#E4E7DC", borderRadius: 999, padding: 3, gap: 2 }}>
+              {[
+                { key: false, label: "Không có kết quả" },
+                { key: true, label: "Có kết quả" },
+              ].map((opt) => (
+                <button
+                  key={String(opt.key)}
+                  onClick={() => onToggleNeedsResult(opt.key)}
+                  style={{
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "5px 10px",
+                    borderRadius: 999,
+                    background: draft.requiresResult === opt.key ? C.ink : "transparent",
+                    color: draft.requiresResult === opt.key ? C.paper : C.inkSoft,
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {draft.requiresResult && (
+          <div style={{ padding: 12, border: `1px solid ${C.line}`, borderRadius: 10, background: "rgba(255,255,255,0.5)" }}>
+            <NoteField
+              value={draft.expectedNote}
+              onChange={onExpectedNoteChange}
+              label="Mô tả mong đợi / ghi chú minh chứng"
+              placeholder="Mô tả bạn cần làm gì để chứng minh đã hoàn thành việc này..."
+            />
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+          <button
+            onClick={onCancel}
+            style={{
+              border: `1px solid ${C.line}`,
+              background: "transparent",
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: C.inkSoft,
+              cursor: "pointer",
+            }}
+          >
+            Huỷ
+          </button>
+          <button
+            disabled={!canConfirm}
+            onClick={onConfirm}
+            title={!canConfirm ? "Cần nhập tên công việc" : undefined}
+            style={{
+              border: "none",
+              background: canConfirm ? C.ink : C.line,
+              color: canConfirm ? C.paper : C.inkFaint,
+              borderRadius: 8,
+              padding: "8px 16px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: canConfirm ? "pointer" : "not-allowed",
+            }}
+          >
+            Lưu thay đổi
           </button>
         </div>
       </div>
@@ -845,16 +949,15 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                 boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
               }}
             >
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div
                   style={{
                     fontFamily: "Inter, sans-serif",
                     fontSize: mobile ? 13 : 14,
                     color: C.ink,
                     fontWeight: 500,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
                   }}
                 >
                   {t.title}
@@ -885,16 +988,23 @@ function TasksContent({
   activeTasks,
   onStatusClick,
   onDelete,
+  onEdit,
 }) {
   return (
     <div>
       <div style={{ marginBottom: mobile ? 16 : 20 }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onAddTask()}
-            placeholder="Nhập công việc mới..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onAddTask();
+              }
+            }}
+            placeholder="Nhập công việc mới... (Enter để thêm, Shift+Enter để xuống dòng)"
+            rows={1}
             style={{
               flex: 1,
               border: `1px solid ${C.line}`,
@@ -905,6 +1015,10 @@ function TasksContent({
               color: C.ink,
               outline: "none",
               background: C.card,
+              resize: "vertical",
+              minHeight: mobile ? 38 : 42,
+              boxSizing: "border-box",
+              whiteSpace: "pre-wrap",
             }}
           />
           <button
@@ -915,13 +1029,14 @@ function TasksContent({
               gap: 6,
               border: "none",
               borderRadius: 8,
-              padding: mobile ? "0 14px" : "0 18px",
+              padding: mobile ? "10px 14px" : "11px 18px",
               background: C.ink,
               color: C.paper,
               fontFamily: "Inter, sans-serif",
               fontWeight: 600,
               fontSize: mobile ? 12.5 : 13.5,
               cursor: "pointer",
+              flexShrink: 0,
             }}
           >
             <Plus size={15} strokeWidth={2.5} />
@@ -988,8 +1103,19 @@ function TasksContent({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontFamily: "Inter, sans-serif", fontSize: mobile ? 13.5 : 14.5, fontWeight: 500, color: C.ink }}>{t.title}</div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: mobile ? 13.5 : 14.5,
+                        fontWeight: 500,
+                        color: C.ink,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {t.title}
+                    </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>Tạo ngày {formatVN(t.createdAt)}</span>
                       {t.requiresResult && (
@@ -1013,13 +1139,22 @@ function TasksContent({
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => onDelete(t.id)}
-                    style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4, flexShrink: 0 }}
-                    title="Xoá công việc"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                    <button
+                      onClick={() => onEdit(t)}
+                      style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
+                      title="Sửa công việc"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={() => onDelete(t.id)}
+                      style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
+                      title="Xoá công việc"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
@@ -1078,7 +1213,7 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
                 {items.map((t) => (
                   <div key={t.id} style={{ background: C.card, borderRadius: 8, padding: mobile ? "10px 12px" : "11px 14px", boxShadow: "0 1px 2px rgba(32,38,31,0.06)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ minWidth: 0 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <div
                           style={{
                             fontFamily: "Inter, sans-serif",
@@ -1087,9 +1222,8 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
                             fontWeight: 500,
                             textDecoration: "line-through",
                             textDecorationColor: C.inkFaint,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
                           }}
                         >
                           {t.title}
@@ -1119,18 +1253,48 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
                         Yêu cầu ban đầu: {t.expectedNote}
                       </div>
                     )}
-                    {t.result && (t.result.text || t.result.fileName) && (
+                    {t.result && (t.result.text || (t.result.files && t.result.files.length > 0)) && (
                       <div style={{ marginTop: 6, padding: "8px 10px", background: C.doneSoft, borderRadius: 8 }}>
                         {t.result.text && (
-                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.ink, marginBottom: t.result.fileName ? 6 : 0 }}>{t.result.text}</div>
+                          <div
+                            style={{
+                              fontFamily: "Inter, sans-serif",
+                              fontSize: 11.5,
+                              color: C.ink,
+                              marginBottom: t.result.files && t.result.files.length > 0 ? 6 : 0,
+                              whiteSpace: "pre-wrap",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {t.result.text}
+                          </div>
                         )}
-                        {t.result.isImage && t.result.fileUrl && (
-                          <img src={t.result.fileUrl} alt={t.result.fileName} style={{ width: "100%", maxHeight: 130, objectFit: "cover", borderRadius: 8, marginBottom: 6 }} />
-                        )}
-                        {t.result.fileName && (
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.done }}>
-                            <Paperclip size={11} strokeWidth={2.5} />
-                            {t.result.fileName}
+                        {t.result.files && t.result.files.length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {t.result.files.map((f, i) => (
+                              <div key={f.id || i}>
+                                {f.isImage && f.fileUrl && (
+                                  <img
+                                    src={f.fileUrl}
+                                    alt={f.fileName}
+                                    style={{ width: "100%", maxHeight: 130, objectFit: "cover", borderRadius: 8, marginBottom: 4 }}
+                                  />
+                                )}
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 5,
+                                    fontFamily: "IBM Plex Mono, monospace",
+                                    fontSize: 10.5,
+                                    color: C.done,
+                                  }}
+                                >
+                                  <Paperclip size={11} strokeWidth={2.5} />
+                                  {f.fileName}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -1168,25 +1332,17 @@ const GLOBAL_STYLE = `
 
 /* ==================== main app: owns all state, renders layout + tabs ==================== */
 export default function App() {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(null);
+  const [tasks, setTasks] = useState(seedTasks);
   const [view, setView] = useState("dashboard");
   const [device, setDevice] = useState(detectDevice);
   const [input, setInput] = useState("");
   const [newTaskNeedsResult, setNewTaskNeedsResult] = useState(false);
   const [newTaskExpectedNote, setNewTaskExpectedNote] = useState("");
   const [completingTaskId, setCompletingTaskId] = useState(null);
-  const [resultDraft, setResultDraft] = useState({ text: "", fileName: null, fileUrl: null, isImage: false });
+  const [resultDraft, setResultDraft] = useState({ text: "", files: [] });
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editDraft, setEditDraft] = useState({ title: "", requiresResult: false, expectedNote: "" });
   const [, setTick] = useState(0);
-
-  // load tasks from Supabase once when the app opens
-  useEffect(() => {
-    dbFetchTasks()
-      .then((rows) => setTasks(rows))
-      .catch((err) => setLoadError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
 
   // re-render every minute so live "doing" timers stay accurate
   useEffect(() => {
@@ -1196,58 +1352,69 @@ export default function App() {
 
   const mobile = device === "mobile";
 
-  // picking a file now uploads it to Supabase Storage and stores the public URL
-  const pickFileInto = (setter) => async (file) => {
-    if (!file) {
-      setter((prev) => ({ ...prev, fileName: null, fileUrl: null, isImage: false }));
-      return;
-    }
-    setter((prev) => ({ ...prev, fileName: file.name, uploading: true }));
-    const uploaded = await uploadResultFile(file);
-    setter((prev) => ({ ...prev, ...uploaded, uploading: false }));
+  // Appends every file picked in a multi-select to the draft's file list
+  // (rather than replacing a single slot), and tags each with a unique id
+  // so it can be individually removed later.
+  const addFilesInto = (setter) => (fileList) => {
+    const picked = Array.from(fileList || []);
+    if (picked.length === 0) return;
+    const newFiles = picked.map((file) => {
+      const isImage = file.type.startsWith("image/");
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        fileName: file.name,
+        fileUrl: isImage ? URL.createObjectURL(file) : null,
+        isImage,
+      };
+    });
+    setter((prev) => ({ ...prev, files: [...prev.files, ...newFiles] }));
   };
 
-  const addTask = async () => {
+  const removeFileFrom = (setter) => (fileId) => {
+    setter((prev) => ({ ...prev, files: prev.files.filter((f) => f.id !== fileId) }));
+  };
+
+  const addTask = () => {
     const title = input.trim();
     if (!title) return;
-    const draft = {
-      title,
-      status: "todo",
-      createdAt: todayISO(),
-      requiresResult: newTaskNeedsResult,
-      expectedNote: newTaskNeedsResult ? newTaskExpectedNote.trim() : null,
-    };
+    setTasks((prev) => [
+      {
+        id: Date.now(),
+        title,
+        status: "todo",
+        createdAt: todayISO(),
+        startedAt: null,
+        completedAt: null,
+        completedAtTs: null,
+        requiresResult: newTaskNeedsResult,
+        expectedNote: newTaskNeedsResult ? newTaskExpectedNote.trim() : null,
+        result: null,
+      },
+      ...prev,
+    ]);
     setInput("");
     setNewTaskNeedsResult(false);
     setNewTaskExpectedNote("");
-    try {
-      const saved = await dbInsertTask(draft);
-      setTasks((prev) => [saved, ...prev]);
-    } catch (err) {
-      alert("Không thêm được việc: " + err.message);
-    }
   };
 
-  const setStatus = async (id, newStatus) => {
-    const current = tasks.find((t) => t.id === id);
-    if (!current) return;
-    if (current.status === "doing" && newStatus === "todo") return;
-    let { startedAt, completedAt, completedAtTs } = current;
-    if (newStatus === "doing" && !startedAt) startedAt = new Date().toISOString();
-    if (newStatus === "done") {
-      if (!startedAt) startedAt = new Date().toISOString();
-      completedAt = todayISO();
-      completedAtTs = Date.now();
-    } else {
-      completedAt = null;
-      completedAtTs = null;
-    }
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus, startedAt, completedAt, completedAtTs } : t)));
-    try {
-      await dbUpdateTaskStatus(id, { status: newStatus, startedAt, completedAt, completedAtTs });
-    } catch (err) {
-      alert("Không lưu được thay đổi: " + err.message);
-    }
+  const setStatus = (id, newStatus) => {
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        if (t.status === "doing" && newStatus === "todo") return t;
+        let { startedAt, completedAt, completedAtTs } = t;
+        if (newStatus === "doing" && !startedAt) startedAt = new Date().toISOString();
+        if (newStatus === "done") {
+          if (!startedAt) startedAt = new Date().toISOString();
+          completedAt = todayISO();
+          completedAtTs = Date.now();
+        } else {
+          completedAt = null;
+          completedAtTs = null;
+        }
+        return { ...t, status: newStatus, startedAt, completedAt, completedAtTs };
+      })
+    );
   };
 
   const handleStatusClick = (task, newStatus) => {
@@ -1255,9 +1422,7 @@ export default function App() {
     if (newStatus === "done" && task.requiresResult) {
       setResultDraft({
         text: task.result?.text || "",
-        fileName: task.result?.fileName || null,
-        fileUrl: task.result?.fileUrl || null,
-        isImage: task.result?.isImage || false,
+        files: task.result?.files || [],
       });
       setCompletingTaskId(task.id);
       return;
@@ -1265,32 +1430,53 @@ export default function App() {
     setStatus(task.id, newStatus);
   };
 
-  const confirmCompletionWithResult = async () => {
-    if (!resultDraft.text.trim() && !resultDraft.fileName) return;
-    const id = completingTaskId;
-    const startedAt = tasks.find((t) => t.id === id)?.startedAt || new Date().toISOString();
-    const completedAt = todayISO();
-    const completedAtTs = Date.now();
-    const result = { text: resultDraft.text.trim(), fileName: resultDraft.fileName, fileUrl: resultDraft.fileUrl, isImage: resultDraft.isImage };
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: "done", startedAt, completedAt, completedAtTs, result } : t)));
+  const confirmCompletionWithResult = () => {
+    if (!resultDraft.text.trim() && resultDraft.files.length === 0) return;
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === completingTaskId
+          ? {
+              ...t,
+              status: "done",
+              startedAt: t.startedAt || new Date().toISOString(),
+              completedAt: todayISO(),
+              completedAtTs: Date.now(),
+              result: { text: resultDraft.text.trim(), files: resultDraft.files },
+            }
+          : t
+      )
+    );
     setCompletingTaskId(null);
-    try {
-      await dbUpdateTaskStatus(id, { status: "done", startedAt, completedAt, completedAtTs });
-      await dbUpsertResult(id, result);
-    } catch (err) {
-      alert("Không lưu được kết quả: " + err.message);
-    }
   };
 
   const restoreTask = (id) => setStatus(id, "doing");
+  const deleteTask = (id) => setTasks((prev) => prev.filter((t) => t.id !== id));
 
-  const deleteTask = async (id) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-    try {
-      await dbDeleteTask(id);
-    } catch (err) {
-      alert("Không xoá được việc: " + err.message);
-    }
+  const openEditTask = (task) => {
+    setEditDraft({
+      title: task.title,
+      requiresResult: task.requiresResult,
+      expectedNote: task.expectedNote || "",
+    });
+    setEditingTaskId(task.id);
+  };
+
+  const confirmEditTask = () => {
+    const title = editDraft.title.trim();
+    if (!title) return;
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === editingTaskId
+          ? {
+              ...t,
+              title,
+              requiresResult: editDraft.requiresResult,
+              expectedNote: editDraft.requiresResult ? editDraft.expectedNote.trim() : null,
+            }
+          : t
+      )
+    );
+    setEditingTaskId(null);
   };
 
   const activeTasks = useMemo(
@@ -1338,14 +1524,6 @@ export default function App() {
     return Object.entries(groups).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [doneTasks]);
 
-  function detectDevice() {
-  if (typeof window === "undefined") return "web";
-  const ua = navigator.userAgent || "";
-  const isPhoneUA = /iPhone|iPod|Android.*Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile/i.test(ua);
-  const isNarrowScreen = window.matchMedia("(max-width: 768px)").matches;
-  return isPhoneUA || isNarrowScreen ? "mobile" : "web";
-  }
-
   const statusChartData = useMemo(
     () => [
       { name: "Chưa thực hiện", value: stats.todo, color: C.amber },
@@ -1360,7 +1538,7 @@ export default function App() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = localISODate(d);
       days.push({
         iso,
         label: `${d.getDate()}/${d.getMonth() + 1}`,
@@ -1389,47 +1567,35 @@ export default function App() {
           activeTasks={activeTasks}
           onStatusClick={handleStatusClick}
           onDelete={deleteTask}
+          onEdit={openEditTask}
         />
       );
     return <ArchiveContent mobile={mobile} archiveGroups={archiveGroups} onRestore={restoreTask} onDelete={deleteTask} />;
   };
 
   const completingTask = completingTaskId != null ? tasks.find((t) => t.id === completingTaskId) : null;
+  const editingTask = editingTaskId != null ? tasks.find((t) => t.id === editingTaskId) : null;
   const modal = completingTask ? (
     <ResultModal
       task={completingTask}
       resultDraft={resultDraft}
       onTextChange={(v) => setResultDraft((prev) => ({ ...prev, text: v }))}
-      onPickFile={pickFileInto(setResultDraft)}
-      onRemoveFile={() => setResultDraft((prev) => ({ ...prev, fileName: null, fileUrl: null, isImage: false }))}
+      onAddFiles={addFilesInto(setResultDraft)}
+      onRemoveFile={removeFileFrom(setResultDraft)}
       onCancel={() => setCompletingTaskId(null)}
       onConfirm={confirmCompletionWithResult}
     />
+  ) : editingTask ? (
+    <EditTaskModal
+      task={editingTask}
+      draft={editDraft}
+      onTitleChange={(v) => setEditDraft((prev) => ({ ...prev, title: v }))}
+      onToggleNeedsResult={(v) => setEditDraft((prev) => ({ ...prev, requiresResult: v }))}
+      onExpectedNoteChange={(v) => setEditDraft((prev) => ({ ...prev, expectedNote: v }))}
+      onCancel={() => setEditingTaskId(null)}
+      onConfirm={confirmEditTask}
+    />
   ) : null;
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
-        <style>{GLOBAL_STYLE}</style>
-        Đang tải dữ liệu...
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, textAlign: "center" }}>
-        <style>{GLOBAL_STYLE}</style>
-        <div style={{ maxWidth: 420 }}>
-          <div style={{ fontWeight: 700, color: C.danger, marginBottom: 8 }}>Không tải được dữ liệu</div>
-          <div style={{ color: C.inkSoft, fontSize: 13 }}>{loadError}</div>
-          <div style={{ color: C.inkFaint, fontSize: 12, marginTop: 10 }}>
-            Kiểm tra lại VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY trong file .env, và đảm bảo đã chạy schema.sql trong Supabase.
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (mobile) {
     return (
