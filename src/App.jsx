@@ -35,6 +35,7 @@ import {
   CartesianGrid,
   LabelList,
 } from "recharts";
+import { supabase } from "./supabaseClient";
 
 /* ---------- design tokens ---------- */
 const C = {
@@ -207,6 +208,120 @@ const seedTasks = [
     result: null,
   },
 ];
+
+/* ==================== Supabase data layer ==================== */
+// Converts a DB row (snake_case, task_results/task_result_files nested) into
+// the camelCase task shape the rest of the app already works with.
+function mapRow(row) {
+  const r = Array.isArray(row.task_results) ? row.task_results[0] : row.task_results;
+  const files = (row.task_result_files || [])
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((f) => ({ id: String(f.id), fileName: f.file_name, fileUrl: f.file_url, isImage: f.is_image }));
+  const hasResult = !!(r && (r.text || files.length > 0));
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    requiresResult: row.requires_result,
+    expectedNote: row.expected_note,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    completedAtTs: row.completed_at_ts ? new Date(row.completed_at_ts).getTime() : null,
+    result: hasResult ? { text: r?.text || "", files } : null,
+  };
+}
+
+async function dbFetchTasks() {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*, task_results(*), task_result_files(*)")
+    .order("inserted_at", { ascending: false });
+  if (error) throw error;
+  return data.map(mapRow);
+}
+
+async function dbInsertTask(task) {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      title: task.title,
+      status: task.status,
+      requires_result: task.requiresResult,
+      expected_note: task.expectedNote,
+      created_at: task.createdAt,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return mapRow(data);
+}
+
+async function dbUpdateTask(id, { title, requiresResult, expectedNote }) {
+  const { error } = await supabase
+    .from("tasks")
+    .update({ title, requires_result: requiresResult, expected_note: expectedNote })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+async function dbUpdateTaskStatus(id, { status, startedAt, completedAt, completedAtTs }) {
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      status,
+      started_at: startedAt,
+      completed_at: completedAt,
+      completed_at_ts: completedAtTs ? new Date(completedAtTs).toISOString() : null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// Saves the note text + replaces the full set of attached files for a task's result.
+async function dbSaveResult(taskId, result) {
+  const { error: textErr } = await supabase
+    .from("task_results")
+    .upsert({ task_id: taskId, text: result.text || null, updated_at: new Date().toISOString() });
+  if (textErr) throw textErr;
+
+  const { error: delErr } = await supabase.from("task_result_files").delete().eq("task_id", taskId);
+  if (delErr) throw delErr;
+
+  const files = result.files || [];
+  if (files.length > 0) {
+    const { error: insErr } = await supabase.from("task_result_files").insert(
+      files.map((f, i) => ({
+        task_id: taskId,
+        file_name: f.fileName,
+        file_url: f.fileUrl,
+        is_image: f.isImage,
+        position: i,
+      }))
+    );
+    if (insErr) throw insErr;
+  }
+}
+
+async function dbDeleteTask(id) {
+  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Uploads a File to the "task-files" storage bucket and returns a public URL.
+// Falls back to a local (non-persistent) preview URL if the bucket isn't set up yet.
+async function uploadResultFile(file) {
+  const isImage = file.type.startsWith("image/");
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`;
+  const { error } = await supabase.storage.from("task-files").upload(path, file);
+  if (error) {
+    console.warn("Tải tệp lên Supabase Storage thất bại, dùng xem trước cục bộ:", error.message);
+    return { fileName: file.name, fileUrl: isImage ? URL.createObjectURL(file) : null, isImage };
+  }
+  const { data } = supabase.storage.from("task-files").getPublicUrl(path);
+  return { fileName: file.name, fileUrl: data.publicUrl, isImage };
+}
 
 /* ==================== small presentational pieces (all module-scope: stable identity) ==================== */
 
@@ -1332,7 +1447,9 @@ const GLOBAL_STYLE = `
 
 /* ==================== main app: owns all state, renders layout + tabs ==================== */
 export default function App() {
-  const [tasks, setTasks] = useState(seedTasks);
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState("dashboard");
   const [device, setDevice] = useState(detectDevice);
   const [input, setInput] = useState("");
@@ -1344,6 +1461,14 @@ export default function App() {
   const [editDraft, setEditDraft] = useState({ title: "", requiresResult: false, expectedNote: "" });
   const [, setTick] = useState(0);
 
+  // load tasks from Supabase once when the app opens
+  useEffect(() => {
+    dbFetchTasks()
+      .then((rows) => setTasks(rows))
+      .catch((err) => setLoadError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
   // re-render every minute so live "doing" timers stay accurate
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 60000);
@@ -1354,67 +1479,94 @@ export default function App() {
 
   // Appends every file picked in a multi-select to the draft's file list
   // (rather than replacing a single slot), and tags each with a unique id
-  // so it can be individually removed later.
-  const addFilesInto = (setter) => (fileList) => {
+  // so it can be individually removed later. Uploads each file to Supabase
+  // Storage right away so fileUrl is a real, persistent URL (not a local
+  // blob: URL that disappears on reload).
+  const addFilesInto = (setter) => async (fileList) => {
     const picked = Array.from(fileList || []);
     if (picked.length === 0) return;
-    const newFiles = picked.map((file) => {
-      const isImage = file.type.startsWith("image/");
-      return {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        fileName: file.name,
-        fileUrl: isImage ? URL.createObjectURL(file) : null,
-        isImage,
-      };
-    });
-    setter((prev) => ({ ...prev, files: [...prev.files, ...newFiles] }));
+
+    // Show files immediately with a temporary local preview while uploading.
+    const pending = picked.map((file) => ({
+      file,
+      isImage: file.type.startsWith("image/"),
+      tempId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }));
+    setter((prev) => ({
+      ...prev,
+      files: [
+        ...prev.files,
+        ...pending.map((p) => ({
+          id: p.tempId,
+          fileName: p.file.name,
+          fileUrl: p.isImage ? URL.createObjectURL(p.file) : null,
+          isImage: p.isImage,
+          uploading: true,
+        })),
+      ],
+    }));
+
+    for (const p of pending) {
+      try {
+        const uploaded = await uploadResultFile(p.file);
+        setter((prev) => ({
+          ...prev,
+          files: prev.files.map((f) => (f.id === p.tempId ? { ...f, fileUrl: uploaded.fileUrl, uploading: false } : f)),
+        }));
+      } catch (err) {
+        setter((prev) => ({
+          ...prev,
+          files: prev.files.map((f) => (f.id === p.tempId ? { ...f, uploading: false, uploadError: err.message } : f)),
+        }));
+      }
+    }
   };
 
   const removeFileFrom = (setter) => (fileId) => {
     setter((prev) => ({ ...prev, files: prev.files.filter((f) => f.id !== fileId) }));
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     const title = input.trim();
     if (!title) return;
-    setTasks((prev) => [
-      {
-        id: Date.now(),
-        title,
-        status: "todo",
-        createdAt: todayISO(),
-        startedAt: null,
-        completedAt: null,
-        completedAtTs: null,
-        requiresResult: newTaskNeedsResult,
-        expectedNote: newTaskNeedsResult ? newTaskExpectedNote.trim() : null,
-        result: null,
-      },
-      ...prev,
-    ]);
+    const draft = {
+      title,
+      status: "todo",
+      createdAt: todayISO(),
+      requiresResult: newTaskNeedsResult,
+      expectedNote: newTaskNeedsResult ? newTaskExpectedNote.trim() : null,
+    };
     setInput("");
     setNewTaskNeedsResult(false);
     setNewTaskExpectedNote("");
+    try {
+      const saved = await dbInsertTask(draft);
+      setTasks((prev) => [saved, ...prev]);
+    } catch (err) {
+      alert("Không thêm được việc: " + err.message);
+    }
   };
 
-  const setStatus = (id, newStatus) => {
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        if (t.status === "doing" && newStatus === "todo") return t;
-        let { startedAt, completedAt, completedAtTs } = t;
-        if (newStatus === "doing" && !startedAt) startedAt = new Date().toISOString();
-        if (newStatus === "done") {
-          if (!startedAt) startedAt = new Date().toISOString();
-          completedAt = todayISO();
-          completedAtTs = Date.now();
-        } else {
-          completedAt = null;
-          completedAtTs = null;
-        }
-        return { ...t, status: newStatus, startedAt, completedAt, completedAtTs };
-      })
-    );
+  const setStatus = async (id, newStatus) => {
+    const current = tasks.find((t) => t.id === id);
+    if (!current) return;
+    if (current.status === "doing" && newStatus === "todo") return;
+    let { startedAt, completedAt, completedAtTs } = current;
+    if (newStatus === "doing" && !startedAt) startedAt = new Date().toISOString();
+    if (newStatus === "done") {
+      if (!startedAt) startedAt = new Date().toISOString();
+      completedAt = todayISO();
+      completedAtTs = Date.now();
+    } else {
+      completedAt = null;
+      completedAtTs = null;
+    }
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus, startedAt, completedAt, completedAtTs } : t)));
+    try {
+      await dbUpdateTaskStatus(id, { status: newStatus, startedAt, completedAt, completedAtTs });
+    } catch (err) {
+      alert("Không lưu được thay đổi: " + err.message);
+    }
   };
 
   const handleStatusClick = (task, newStatus) => {
@@ -1430,27 +1582,34 @@ export default function App() {
     setStatus(task.id, newStatus);
   };
 
-  const confirmCompletionWithResult = () => {
+  const confirmCompletionWithResult = async () => {
     if (!resultDraft.text.trim() && resultDraft.files.length === 0) return;
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === completingTaskId
-          ? {
-              ...t,
-              status: "done",
-              startedAt: t.startedAt || new Date().toISOString(),
-              completedAt: todayISO(),
-              completedAtTs: Date.now(),
-              result: { text: resultDraft.text.trim(), files: resultDraft.files },
-            }
-          : t
-      )
-    );
+    const id = completingTaskId;
+    const current = tasks.find((t) => t.id === id);
+    const startedAt = current?.startedAt || new Date().toISOString();
+    const completedAt = todayISO();
+    const completedAtTs = Date.now();
+    const result = { text: resultDraft.text.trim(), files: resultDraft.files };
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: "done", startedAt, completedAt, completedAtTs, result } : t)));
     setCompletingTaskId(null);
+    try {
+      await dbUpdateTaskStatus(id, { status: "done", startedAt, completedAt, completedAtTs });
+      await dbSaveResult(id, result);
+    } catch (err) {
+      alert("Không lưu được kết quả: " + err.message);
+    }
   };
 
   const restoreTask = (id) => setStatus(id, "doing");
-  const deleteTask = (id) => setTasks((prev) => prev.filter((t) => t.id !== id));
+
+  const deleteTask = async (id) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    try {
+      await dbDeleteTask(id);
+    } catch (err) {
+      alert("Không xoá được việc: " + err.message);
+    }
+  };
 
   const openEditTask = (task) => {
     setEditDraft({
@@ -1461,22 +1620,23 @@ export default function App() {
     setEditingTaskId(task.id);
   };
 
-  const confirmEditTask = () => {
+  const confirmEditTask = async () => {
     const title = editDraft.title.trim();
     if (!title) return;
+    const id = editingTaskId;
+    const requiresResult = editDraft.requiresResult;
+    const expectedNote = requiresResult ? editDraft.expectedNote.trim() : null;
+
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === editingTaskId
-          ? {
-              ...t,
-              title,
-              requiresResult: editDraft.requiresResult,
-              expectedNote: editDraft.requiresResult ? editDraft.expectedNote.trim() : null,
-            }
-          : t
-      )
+      prev.map((t) => (t.id === id ? { ...t, title, requiresResult, expectedNote } : t))
     );
     setEditingTaskId(null);
+
+    try {
+      await dbUpdateTask(id, { title, requiresResult, expectedNote });
+    } catch (err) {
+      alert("Không lưu được thay đổi: " + err.message);
+    }
   };
 
   const activeTasks = useMemo(
@@ -1596,6 +1756,30 @@ export default function App() {
       onConfirm={confirmEditTask}
     />
   ) : null;
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
+        <style>{GLOBAL_STYLE}</style>
+        Đang tải dữ liệu...
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, textAlign: "center" }}>
+        <style>{GLOBAL_STYLE}</style>
+        <div style={{ maxWidth: 420 }}>
+          <div style={{ fontWeight: 700, color: C.danger, marginBottom: 8 }}>Không tải được dữ liệu</div>
+          <div style={{ color: C.inkSoft, fontSize: 13 }}>{loadError}</div>
+          <div style={{ color: C.inkFaint, fontSize: 12, marginTop: 10 }}>
+            Kiểm tra lại VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY trong file .env, và đảm bảo đã chạy schema.sql trong Supabase.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (mobile) {
     return (
