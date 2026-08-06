@@ -1118,7 +1118,7 @@ function TasksContent({
                 onAddTask();
               }
             }}
-            placeholder="Nhập công việc mới... (Enter để thêm, Shift+Enter để xuống dòng)"
+            placeholder="Nhập công việc mới..."
             rows={1}
             style={{
               flex: 1,
