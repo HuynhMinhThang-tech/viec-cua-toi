@@ -21,6 +21,10 @@ import {
   Image as ImageIcon,
   X,
   Lock,
+  CalendarDays,
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -58,6 +62,21 @@ const C = {
 const MONTHS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const DAY_MS = 86400000;
 const DOING_FUSE_MS = 3 * DAY_MS; // reference length for the "doing" progress fuse
+const CONFIRMED_AUTO_DELETE_MS = 3 * DAY_MS; // a confirmed calendar event auto-deletes 3 days after being confirmed
+const ARCHIVE_RETENTION_DAYS = 7; // archived (done) tasks auto-delete this many days after completion
+
+// True once a confirmed event has passed its 3-day auto-delete window.
+function isConfirmedExpired(ev) {
+  if (!ev.confirmedAt) return false;
+  return Date.now() - new Date(ev.confirmedAt).getTime() >= CONFIRMED_AUTO_DELETE_MS;
+}
+
+// True once an archived (done) task has passed the 7-day retention window,
+// i.e. it fell out of the "7 ngày qua" trend chart's range and can be purged.
+function isArchivedTaskExpired(task) {
+  if (task.status !== "done" || !task.completedAt) return false;
+  return daysSince(task.completedAt) >= ARCHIVE_RETENTION_DAYS;
+}
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -87,6 +106,44 @@ function daysSince(dateOrIso) {
   const t = new Date(dateOrIso).getTime();
   return Math.floor((Date.now() - t) / DAY_MS);
 }
+// Returns the Date (local midnight) of the Monday that starts the week containing dateLike.
+function getWeekStart(dateLike) {
+  const d = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0 = Sun ... 6 = Sat
+  const diff = day === 0 ? -6 : 1 - day; // shift back to Monday
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+function addDays(dateLike, n) {
+  const d = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+// Rounds a Date up to the next `stepMinutes` boundary — used to suggest a sensible
+// default time (e.g. "the next half hour") that's never already in the past.
+function roundUpTime(date = new Date(), stepMinutes = 30) {
+  const ms = stepMinutes * 60000;
+  return new Date(Math.ceil(date.getTime() / ms) * ms);
+}
+// "HH:MM" for right now — used to enforce that new events can't be scheduled in the past.
+function nowHM() {
+  const d = new Date();
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+// True when (dateStr, timeStr) already lies in the past relative to right now.
+// A date with no time chosen yet is only considered past once the date itself has passed
+// (so picking today with time still blank isn't flagged prematurely).
+function isPastDateTime(dateStr, timeStr) {
+  if (!dateStr) return false;
+  const today = todayISO();
+  if (dateStr < today) return true;
+  if (dateStr === today && timeStr) return timeStr < nowHM();
+  return false;
+}
+
+const WEEKDAY_LABELS_SHORT = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+const WEEKDAY_LABELS_FULL = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
 function formatDuration(ms) {
   if (ms == null || ms < 0) ms = 0;
   const totalMinutes = Math.floor(ms / 60000);
@@ -118,96 +175,71 @@ const STATUS = {
 const NAV_ITEMS = [
   { key: "dashboard", label: "Tổng quan", Icon: LayoutDashboard },
   { key: "tasks", label: "Công việc", Icon: ListTodo },
+  { key: "calendar", label: "Lịch", Icon: CalendarDays },
   { key: "archive", label: "Lưu trữ", Icon: Archive },
 ];
 
-/* ---------- seed data ---------- */
-const seedTasks = [
-  {
-    id: 1,
-    title: "Soạn báo cáo tuần cho quản lý",
-    status: "doing",
-    createdAt: localISODate(tsDaysAgo(5)),
-    startedAt: tsDaysAgo(4),
-    completedAt: null,
-    completedAtTs: null,
-    requiresResult: true,
-    expectedNote: "Đính kèm bản báo cáo hoàn chỉnh trước khi gửi cho quản lý.",
-    result: null,
-  },
-  {
-    id: 2,
-    title: "Đặt lịch khám sức khỏe định kỳ",
-    status: "todo",
-    createdAt: localISODate(tsDaysAgo(3)),
-    startedAt: null,
-    completedAt: null,
-    completedAtTs: null,
-    requiresResult: false,
-    expectedNote: null,
-    result: null,
-  },
-  {
-    id: 3,
-    title: "Mua quà sinh nhật cho mẹ",
-    status: "done",
-    createdAt: localISODate(tsDaysAgo(4)),
-    startedAt: tsDaysAgo(3),
-    completedAt: localISODate(tsDaysAgo(1)),
-    completedAtTs: new Date(tsDaysAgo(1)).getTime(),
-    requiresResult: true,
-    expectedNote: "Chụp ảnh hoặc ghi chú xác nhận đã mua và gói quà xong.",
-    result: { text: "Đã mua ví da tặng mẹ và gói quà xong.", files: [{ id: "seed-1", fileName: "vi-da-tang-me.jpg", fileUrl: null, isImage: false }] },
-  },
-  {
-    id: 4,
-    title: "Dọn dẹp lại góc làm việc",
-    status: "done",
-    createdAt: localISODate(tsDaysAgo(6)),
-    startedAt: tsDaysAgo(5),
-    completedAt: localISODate(tsDaysAgo(1)),
-    completedAtTs: new Date(tsDaysAgo(1, 6)).getTime(),
-    requiresResult: false,
-    expectedNote: null,
-    result: null,
-  },
-  {
-    id: 5,
-    title: "Trả sách đã mượn ở thư viện",
-    status: "done",
-    createdAt: localISODate(tsDaysAgo(9)),
-    startedAt: tsDaysAgo(7),
-    completedAt: localISODate(tsDaysAgo(5)),
-    completedAtTs: new Date(tsDaysAgo(5)).getTime(),
-    requiresResult: false,
-    expectedNote: null,
-    result: null,
-  },
-  {
-    id: 6,
-    title: "Lên kế hoạch chi tiêu tháng tới",
-    status: "todo",
-    createdAt: localISODate(tsDaysAgo(1)),
-    startedAt: null,
-    completedAt: null,
-    completedAtTs: null,
-    requiresResult: false,
-    expectedNote: null,
-    result: null,
-  },
-  {
-    id: 7,
-    title: "Ôn tập tiếng Anh 30 phút",
-    status: "doing",
-    createdAt: localISODate(tsDaysAgo(1)),
-    startedAt: tsDaysAgo(0, 2),
-    completedAt: null,
-    completedAtTs: null,
-    requiresResult: false,
-    expectedNote: null,
-    result: null,
-  },
+// Built-in categories. Users can add their own on top of these (see customEventTypes
+// state in the main App component) — "Khác" was removed in favor of that.
+const BASE_EVENT_TYPES = {
+  appointment: { label: "Lịch hẹn", color: C.teal, soft: C.tealSoft },
+  meeting: { label: "Lịch họp", color: C.amber, soft: C.amberSoft },
+  reminder: { label: "Nhắc nhở", color: C.danger, soft: C.dangerSoft },
+};
+
+// Colors auto-assigned to new custom categories, cycled in order of creation.
+const CUSTOM_TYPE_PALETTE = [
+  { color: "#6B5B95", soft: "#EDE8F5" },
+  { color: "#3D7EA6", soft: "#DCEAF2" },
+  { color: "#A65DA6", soft: "#F2E2F2" },
+  { color: "#4C7A57", soft: "#E1EDE4" },
+  { color: "#B4652A", soft: "#F4E3D3" },
+  { color: "#5D6D7E", soft: "#E4E8EC" },
 ];
+
+// Sentinel option value used by the "Loại lịch" dropdown to trigger the inline
+// "add new category" flow instead of selecting a real category.
+const NEW_CATEGORY_VALUE = "__new_category__";
+
+function emptyEventForm() {
+  // Suggest "the next half hour" so the default is never already in the past
+  // (a fixed 08:00 default would be past by the time someone opens the form at, say, 9am).
+  const suggested = roundUpTime(new Date(), 30);
+  return {
+    title: "",
+    eventType: "appointment",
+    eventDate: localISODate(suggested),
+    eventTime: `${pad2(suggested.getHours())}:${pad2(suggested.getMinutes())}`,
+    location: "",
+    description: "",
+  };
+}
+
+// Formats HH:MM:SS (from Postgres "time") or HH:MM down to HH:MM for display.
+function formatTimeHM(t) {
+  if (!t) return "";
+  return t.slice(0, 5);
+}
+
+// Positions a day's events proportionally by exact hour+minute (not just the
+// hour bucket), so e.g. 9:15 renders visibly below the 9:00 line instead of
+// looking identical to a 9:00 event. `rowH` is the pixel height of one hour.
+// Events are sorted by time and nudged down just enough to avoid overlapping
+// (simple sequential stacking rather than full side-by-side collision layout).
+function layoutDayEvents(dayEvents, rowH, minGap = 22) {
+  const sorted = [...dayEvents]
+    .filter((ev) => ev.eventTime)
+    .sort((a, b) => a.eventTime.localeCompare(b.eventTime));
+  let lastBottom = -Infinity;
+  return sorted.map((ev) => {
+    const hour = parseInt(ev.eventTime.slice(0, 2), 10) || 0;
+    const minute = parseInt(ev.eventTime.slice(3, 5), 10) || 0;
+    let top = hour * rowH + (minute / 60) * rowH;
+    if (top < lastBottom) top = lastBottom;
+    lastBottom = top + minGap;
+    return { ev, top };
+  });
+}
 
 /* ==================== Supabase data layer ==================== */
 // Converts a DB row (snake_case, task_results/task_result_files nested) into
@@ -309,6 +341,74 @@ async function dbDeleteTask(id) {
   if (error) throw error;
 }
 
+// ---------- calendar events data layer ----------
+function mapEventRow(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    eventType: row.event_type,
+    eventDate: row.event_date,
+    eventTime: row.event_time,
+    location: row.location,
+    confirmedAt: row.confirmed_at,
+  };
+}
+
+async function dbFetchEvents() {
+  const { data, error } = await supabase
+    .from("calendar_events")
+    .select("*")
+    .order("event_date", { ascending: true });
+  if (error) throw error;
+  return data.map(mapEventRow);
+}
+
+async function dbInsertEvent(ev) {
+  const { data, error } = await supabase
+    .from("calendar_events")
+    .insert({
+      title: ev.title,
+      description: ev.description || null,
+      event_type: ev.eventType,
+      event_date: ev.eventDate,
+      event_time: ev.eventTime || null,
+      location: ev.location || null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return mapEventRow(data);
+}
+
+async function dbUpdateEvent(id, ev) {
+  const { error } = await supabase
+    .from("calendar_events")
+    .update({
+      title: ev.title,
+      description: ev.description || null,
+      event_type: ev.eventType,
+      event_date: ev.eventDate,
+      event_time: ev.eventTime || null,
+      location: ev.location || null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// Sets (or clears, when confirmedAt is null) the "Xác nhận" timestamp on an event.
+// A confirmed event is auto-deleted CONFIRMED_AUTO_DELETE_MS after this timestamp
+// (see pruneExpiredConfirmedEvents in the main App component).
+async function dbSetEventConfirmed(id, confirmedAt) {
+  const { error } = await supabase.from("calendar_events").update({ confirmed_at: confirmedAt }).eq("id", id);
+  if (error) throw error;
+}
+
+async function dbDeleteEvent(id) {
+  const { error } = await supabase.from("calendar_events").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // Uploads a File to the "task-files" storage bucket and returns a public URL.
 // Falls back to a local (non-persistent) preview URL if the bucket isn't set up yet.
 async function uploadResultFile(file) {
@@ -322,6 +422,8 @@ async function uploadResultFile(file) {
   const { data } = supabase.storage.from("task-files").getPublicUrl(path);
   return { fileName: file.name, fileUrl: data.publicUrl, isImage };
 }
+
+
 
 /* ==================== small presentational pieces (all module-scope: stable identity) ==================== */
 
@@ -948,12 +1050,339 @@ function EditTaskModal({ task, draft, onTitleChange, onToggleNeedsResult, onExpe
   );
 }
 
+/* shared form fields for creating/editing a calendar event */
+function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory, restrictPast = false }) {
+  const set = (patch) => onChange({ ...draft, ...patch });
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const todayStr = todayISO();
+  const isToday = draft.eventDate === todayStr;
+  const minTime = restrictPast && isToday ? nowHM() : undefined;
+  const inputStyle = {
+    width: "100%",
+    marginTop: 6,
+    border: `1.5px solid ${C.line}`,
+    borderRadius: 10,
+    padding: "9px 12px",
+    fontFamily: "Inter, sans-serif",
+    fontSize: 13,
+    color: C.ink,
+    outline: "none",
+    boxSizing: "border-box",
+    background: C.paper,
+  };
+
+  const confirmNewCategory = () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    const newKey = onAddCategory(name);
+    if (newKey) set({ eventType: newKey });
+    setAddingCategory(false);
+    setNewCategoryName("");
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div>
+        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Tiêu đề</label>
+        <textarea
+          value={draft.title}
+          onChange={(e) => set({ title: e.target.value })}
+          placeholder="VD: Họp nhóm dự án, Khám răng định kỳ..."
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical", whiteSpace: "pre-wrap" }}
+        />
+      </div>
+
+      <div>
+        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Loại lịch</label>
+        <select
+          value={draft.eventType}
+          onChange={(e) => {
+            if (e.target.value === NEW_CATEGORY_VALUE) {
+              setAddingCategory(true);
+              setNewCategoryName("");
+            } else {
+              set({ eventType: e.target.value });
+            }
+          }}
+          style={{ ...inputStyle, cursor: "pointer" }}
+        >
+          {Object.entries(eventTypes).map(([key, t]) => (
+            <option key={key} value={key}>
+              {t.label}
+            </option>
+          ))}
+          <option value={NEW_CATEGORY_VALUE}>+ Thêm danh mục mới</option>
+        </select>
+
+        {addingCategory && (
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <input
+              autoFocus
+              type="text"
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  confirmNewCategory();
+                }
+              }}
+              placeholder="Tên danh mục mới..."
+              style={{ ...inputStyle, marginTop: 0, flex: 1 }}
+            />
+            <button
+              onClick={confirmNewCategory}
+              disabled={!newCategoryName.trim()}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "0 14px",
+                background: newCategoryName.trim() ? C.ink : C.line,
+                color: newCategoryName.trim() ? C.paper : C.inkFaint,
+                fontFamily: "Inter, sans-serif",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: newCategoryName.trim() ? "pointer" : "not-allowed",
+                flexShrink: 0,
+              }}
+            >
+              Thêm
+            </button>
+            <button
+              onClick={() => {
+                setAddingCategory(false);
+                setNewCategoryName("");
+              }}
+              style={{
+                border: `1px solid ${C.line}`,
+                borderRadius: 8,
+                padding: "0 12px",
+                background: "transparent",
+                color: C.inkSoft,
+                fontFamily: "Inter, sans-serif",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Huỷ
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Ngày</label>
+          <input
+            type="date"
+            value={draft.eventDate}
+            min={restrictPast ? todayStr : undefined}
+            onChange={(e) => {
+              let v = e.target.value;
+              if (restrictPast && v && v < todayStr) v = todayStr;
+              const patch = { eventDate: v };
+              // Landing on today with an already-past time selected: bump the time forward too,
+              // so the pair (date, time) never ends up in the past together.
+              if (restrictPast && v === todayStr && draft.eventTime && draft.eventTime < nowHM()) {
+                patch.eventTime = nowHM();
+              }
+              set(patch);
+            }}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Giờ</label>
+          <input
+            type="time"
+            value={draft.eventTime}
+            min={minTime}
+            onChange={(e) => {
+              let v = e.target.value;
+              if (restrictPast && isToday && v && v < nowHM()) v = nowHM();
+              set({ eventTime: v });
+            }}
+            style={inputStyle}
+          />
+        </div>
+      </div>
+      {restrictPast && (
+        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, color: C.inkFaint, margin: "-6px 0 0" }}>
+          Không thể đặt lịch cho ngày/giờ đã qua.
+        </p>
+      )}
+
+      <div>
+        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Địa điểm (không bắt buộc)</label>
+        <input
+          type="text"
+          value={draft.location}
+          onChange={(e) => set({ location: e.target.value })}
+          placeholder="VD: Phòng họp A, Bệnh viện..."
+          style={inputStyle}
+        />
+      </div>
+
+      <div>
+        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Ghi chú (không bắt buộc)</label>
+        <textarea
+          value={draft.description}
+          onChange={(e) => set({ description: e.target.value })}
+          placeholder="Chi tiết thêm về lịch này..."
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* modal used to edit an existing calendar event */
+function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete, onToggleConfirm, eventTypes, onAddCategory }) {
+  if (!event) return null;
+  const canConfirm = draft.title.trim().length > 0 && draft.eventDate;
+  const isConfirmed = !!event.confirmedAt;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(32,38,31,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 50,
+        overflowY: "auto",
+      }}
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 24px 60px rgba(0,0,0,0.3)", margin: "24px 0" }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: isConfirmed ? 10 : 16 }}>
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: C.tealSoft,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <CalendarClock size={18} color={C.teal} strokeWidth={2.2} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, color: C.ink }}>Chỉnh sửa lịch</div>
+          </div>
+          <button
+            onClick={() => onDelete(event.id)}
+            title="Xoá lịch này"
+            style={{ border: "none", background: "transparent", color: C.danger, cursor: "pointer", padding: 4, flexShrink: 0 }}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+
+        {isConfirmed && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: C.doneSoft,
+              color: C.done,
+              borderRadius: 8,
+              padding: "7px 10px",
+              marginBottom: 14,
+              fontFamily: "Inter, sans-serif",
+              fontSize: 11.5,
+              fontWeight: 600,
+            }}
+          >
+            <CheckCircle2 size={13} strokeWidth={2.5} />
+            Đã xác nhận · tự động xoá sau 3 ngày kể từ lúc xác nhận
+          </div>
+        )}
+
+        <EventFormFields draft={draft} onChange={onChange} idPrefix="edit-event" eventTypes={eventTypes} onAddCategory={onAddCategory} />
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
+          <button
+            onClick={onCancel}
+            style={{
+              border: `1px solid ${C.line}`,
+              background: "transparent",
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: C.inkSoft,
+              cursor: "pointer",
+            }}
+          >
+            Huỷ
+          </button>
+          <button
+            onClick={() => onToggleConfirm(event.id, !isConfirmed)}
+            title={isConfirmed ? "Bỏ xác nhận" : "Đánh dấu đã xác nhận — lịch vẫn hiện, tự xoá sau 3 ngày"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              border: `1px solid ${isConfirmed ? C.line : C.done}`,
+              background: isConfirmed ? "transparent" : C.doneSoft,
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: isConfirmed ? C.inkSoft : C.done,
+              cursor: "pointer",
+            }}
+          >
+            <CheckCircle2 size={14} strokeWidth={2.5} />
+            {isConfirmed ? "Bỏ xác nhận" : "Xác nhận"}
+          </button>
+          <button
+            disabled={!canConfirm}
+            onClick={onConfirm}
+            title={!canConfirm ? "Cần nhập tiêu đề và ngày" : undefined}
+            style={{
+              border: "none",
+              background: canConfirm ? C.ink : C.line,
+              color: canConfirm ? C.paper : C.inkFaint,
+              borderRadius: 8,
+              padding: "8px 16px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: canConfirm ? "pointer" : "not-allowed",
+            }}
+          >
+            Lưu thay đổi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ==================== tab content components ==================== */
 
-function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendData }) {
+function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendData, eventsToday, eventsThisWeek, eventTypeChartData }) {
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: mobile ? 10 : 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: mobile ? 10 : 14 }}>
         <StatCard label="Tổng công việc" value={stats.total} color={C.ink} mobile={mobile} />
         <StatCard label="Chưa thực hiện" value={stats.todo} color={C.amber} mobile={mobile} />
         <StatCard label="Đang thực hiện" value={stats.doing} color={C.teal} mobile={mobile} />
@@ -962,9 +1391,11 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
         <StatCard label="Tỷ lệ hoàn thành" value={`${stats.rate}%`} color={C.ink} mobile={mobile} />
         <StatCard label="Thời gian hoàn thành TB" value={stats.avgMs != null ? formatDuration(stats.avgMs) : "—"} color={C.teal} mobile={mobile} small />
         <StatCard label="Việc tồn đọng > 2 ngày" value={staleTasks.length} color={staleTasks.length ? C.danger : C.done} mobile={mobile} />
+        <StatCard label="Lịch hôm nay" value={eventsToday} color={C.teal} mobile={mobile} />
+        <StatCard label="Lịch tuần này" value={eventsThisWeek} color={C.amber} mobile={mobile} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1.4fr", gap: mobile ? 12 : 14, marginTop: mobile ? 18 : 22 }}>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: mobile ? 12 : 14, marginTop: mobile ? 18 : 22 }}>
         <SectionCard title="Phân bổ trạng thái" mobile={mobile}>
           {stats.total === 0 ? (
             <EmptyState text="Chưa có dữ liệu để hiển thị." />
@@ -998,6 +1429,52 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
           )}
         </SectionCard>
 
+        <SectionCard title="Phân bổ lịch theo danh mục" mobile={mobile}>
+          {eventTypeChartData.length === 0 ? (
+            <EmptyState text="Chưa có lịch nào để hiển thị." />
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: mobile ? 110 : 130, height: mobile ? 110 : 130, flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={eventTypeChartData} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="100%" paddingAngle={2} stroke="none">
+                      {eventTypeChartData.map((entry, i) => (
+                        <Cell key={i} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v, n) => [`${v} lịch`, n]}
+                      contentStyle={{ fontFamily: "Inter, sans-serif", fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+                {eventTypeChartData.map((s) => (
+                  <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color, flexShrink: 0 }} />
+                    <span
+                      style={{
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: 12,
+                        color: C.inkSoft,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {s.name}
+                    </span>
+                    <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, color: C.ink, marginLeft: "auto", flexShrink: 0 }}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <div style={{ marginTop: mobile ? 12 : 14 }}>
         <SectionCard title="Tạo mới &amp; hoàn thành trong 7 ngày qua" mobile={mobile}>
           <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1009,7 +1486,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
               <span style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkSoft }}>Hoàn thành</span>
             </div>
           </div>
-          <div style={{ width: "100%", height: mobile ? 150 : 170 }}>
+          <div style={{ width: "100%", height: mobile ? 160 : 210 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={trendData} margin={{ top: 18, right: 4, left: -20, bottom: 0 }} barGap={4}>
                 <CartesianGrid vertical={false} stroke={C.line} />
@@ -1030,10 +1507,10 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                   formatter={(v, n) => [`${v} việc`, n === "created" ? "Tạo mới" : "Hoàn thành"]}
                   contentStyle={{ fontFamily: "Inter, sans-serif", fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
                 />
-                <Bar dataKey="created" fill={C.amber} radius={[4, 4, 0, 0]} maxBarSize={16}>
+                <Bar dataKey="created" fill={C.amber} radius={[4, 4, 0, 0]} maxBarSize={28}>
                   <LabelList dataKey="created" position="top" formatter={(v) => (v > 0 ? v : "")} style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, fill: C.amber }} />
                 </Bar>
-                <Bar dataKey="completed" fill={C.teal} radius={[4, 4, 0, 0]} maxBarSize={16}>
+                <Bar dataKey="completed" fill={C.teal} radius={[4, 4, 0, 0]} maxBarSize={28}>
                   <LabelList dataKey="completed" position="top" formatter={(v) => (v > 0 ? v : "")} style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, fill: C.teal }} />
                 </Bar>
               </BarChart>
@@ -1118,7 +1595,7 @@ function TasksContent({
                 onAddTask();
               }
             }}
-            placeholder="Nhập công việc mới..."
+            placeholder="Nhập công việc mới... "
             rows={1}
             style={{
               flex: 1,
@@ -1311,9 +1788,592 @@ function TasksContent({
   );
 }
 
+const CAL_ROW_H = { mobile: 40, desktop: 46 };
+const CAL_TIME_COL_W = { mobile: 38, desktop: 52 };
+const CAL_DAY_COL_W = { mobile: 84, desktop: 112 };
+const CAL_HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes }) {
+  const scrollRef = React.useRef(null);
+  const rowH = mobile ? CAL_ROW_H.mobile : CAL_ROW_H.desktop;
+  const timeColW = mobile ? CAL_TIME_COL_W.mobile : CAL_TIME_COL_W.desktop;
+  const dayColW = mobile ? CAL_DAY_COL_W.mobile : CAL_DAY_COL_W.desktop;
+  const today = todayISO();
+
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+
+  // group events by day so each day column can lay itself out by exact hour+minute
+  const eventsByDay = useMemo(() => {
+    const map = {};
+    events.forEach((ev) => {
+      if (!ev.eventTime) return;
+      if (!map[ev.eventDate]) map[ev.eventDate] = [];
+      map[ev.eventDate].push(ev);
+    });
+    return map;
+  }, [events]);
+
+  // auto-scroll to a sensible starting hour whenever the visible week changes
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 6 * rowH;
+  }, [weekStart, rowH]);
+
+  return (
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", background: C.card }}>
+      <div ref={scrollRef} style={{ maxHeight: mobile ? 440 : 560, overflow: "auto" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `${timeColW}px repeat(7, minmax(${dayColW}px, 1fr))`,
+            gridTemplateRows: `auto repeat(24, minmax(${rowH}px, auto))`,
+            minWidth: timeColW + dayColW * 7,
+          }}
+        >
+          <div
+            style={{
+              gridColumn: 1,
+              gridRow: 1,
+              position: "sticky",
+              top: 0,
+              left: 0,
+              zIndex: 3,
+              background: C.card,
+              borderBottom: `1px solid ${C.line}`,
+              borderRight: `1px solid ${C.line}`,
+            }}
+          />
+          {weekDates.map((d, i) => {
+            const iso = localISODate(d);
+            const isToday = iso === today;
+            return (
+              <div
+                key={i}
+                style={{
+                  gridColumn: i + 2,
+                  gridRow: 1,
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 2,
+                  background: C.card,
+                  borderBottom: `1px solid ${C.line}`,
+                  borderLeft: `1px solid ${C.line}`,
+                  textAlign: "center",
+                  padding: "7px 4px",
+                }}
+              >
+                <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10, fontWeight: 600, color: isToday ? C.teal : C.inkFaint }}>
+                  {WEEKDAY_LABELS_SHORT[d.getDay()]}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "IBM Plex Mono, monospace",
+                    fontSize: mobile ? 12.5 : 14,
+                    fontWeight: 700,
+                    color: isToday ? "#fff" : C.ink,
+                    marginTop: 3,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 22,
+                    height: 22,
+                    borderRadius: 999,
+                    background: isToday ? C.teal : "transparent",
+                  }}
+                >
+                  {d.getDate()}
+                </div>
+              </div>
+            );
+          })}
+
+          {CAL_HOURS.map((hour) => (
+            <React.Fragment key={hour}>
+              <div
+                style={{
+                  gridColumn: 1,
+                  gridRow: hour + 2,
+                  position: "sticky",
+                  left: 0,
+                  zIndex: 1,
+                  background: C.card,
+                  borderRight: `1px solid ${C.line}`,
+                  borderTop: `1px solid ${C.line}`,
+                  textAlign: "right",
+                  padding: "2px 5px",
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: 9.5,
+                  color: C.inkFaint,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {pad2(hour)}:00
+              </div>
+              {weekDates.map((d, di) => {
+                const iso = localISODate(d);
+                const isToday = iso === today;
+                return (
+                  <div
+                    key={di}
+                    style={{
+                      gridColumn: di + 2,
+                      gridRow: hour + 2,
+                      borderTop: `1px solid ${C.line}`,
+                      borderLeft: `1px solid ${C.line}`,
+                      background: isToday ? "rgba(47,111,94,0.05)" : "transparent",
+                      minHeight: rowH,
+                    }}
+                  />
+                );
+              })}
+            </React.Fragment>
+          ))}
+
+          {/* overlay: one relative-positioned wrapper per day, spanning all 24 hour rows,
+              so events can be placed by exact hour+minute instead of snapping to the hour */}
+          {weekDates.map((d, di) => {
+            const iso = localISODate(d);
+            const positioned = layoutDayEvents(eventsByDay[iso] || [], rowH);
+            if (positioned.length === 0) return null;
+            return (
+              <div key={`ov-${di}`} style={{ gridColumn: di + 2, gridRow: "2 / span 24", position: "relative", pointerEvents: "none" }}>
+                {positioned.map(({ ev, top }) => {
+                  const t = eventTypes[ev.eventType] || eventTypes.appointment;
+                  const confirmed = !!ev.confirmedAt;
+                  return (
+                    <button
+                      key={ev.id}
+                      onClick={() => onEventClick(ev)}
+                      title={confirmed ? `${ev.title} · Đã xác nhận` : ev.title}
+                      style={{
+                        position: "absolute",
+                        top: top + 1,
+                        left: 2,
+                        right: 2,
+                        pointerEvents: "auto",
+                        textAlign: "left",
+                        border: confirmed ? `1px dashed ${t.color}` : "none",
+                        cursor: "pointer",
+                        borderRadius: 5,
+                        padding: mobile ? "2px 4px" : "3px 6px",
+                        background: confirmed ? "transparent" : t.soft,
+                        color: t.color,
+                        opacity: confirmed ? 0.6 : 1,
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: mobile ? 9.5 : 10.5,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
+                        textOverflow: "ellipsis",
+                        textDecoration: confirmed ? "line-through" : "none",
+                        zIndex: 1,
+                      }}
+                    >
+                      {confirmed ? "✓ " : ""}
+                      {formatTimeHM(ev.eventTime)} {ev.title}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* mobile: compact 7-day selector strip shown above the day timeline */
+function DayStrip({ weekDates, selectedDate, onSelect, events }) {
+  const todayIso = todayISO();
+  const selIso = localISODate(selectedDate);
+  const datesWithEvents = useMemo(() => new Set(events.map((e) => e.eventDate)), [events]);
+  return (
+    <div style={{ display: "flex", gap: 3, marginBottom: 12 }}>
+      {weekDates.map((d, i) => {
+        const iso = localISODate(d);
+        const isSel = iso === selIso;
+        const isToday = iso === todayIso;
+        return (
+          <button
+            key={i}
+            onClick={() => onSelect(d)}
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+              border: "none",
+              cursor: "pointer",
+              borderRadius: 10,
+              padding: "6px 2px 7px",
+              background: isSel ? C.ink : "transparent",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "Inter, sans-serif",
+                fontSize: 9.5,
+                fontWeight: 600,
+                color: isSel ? C.paper : isToday ? C.teal : C.inkFaint,
+              }}
+            >
+              {WEEKDAY_LABELS_SHORT[d.getDay()]}
+            </span>
+            <span
+              style={{
+                fontFamily: "IBM Plex Mono, monospace",
+                fontSize: 13,
+                fontWeight: 700,
+                color: isSel ? C.paper : isToday ? C.teal : C.ink,
+              }}
+            >
+              {d.getDate()}
+            </span>
+            <span
+              style={{
+                width: 4,
+                height: 4,
+                borderRadius: 999,
+                background: datesWithEvents.has(iso) ? (isSel ? C.paper : C.teal) : "transparent",
+              }}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* mobile: single-day hour-by-hour timeline (columns=day is implicit since there's only one) */
+function DayTimeline({ selectedDate, events, onEventClick, eventTypes }) {
+  const rowH = 52;
+  const dateIso = localISODate(selectedDate);
+  const isToday = dateIso === todayISO();
+
+  const dayEvents = useMemo(() => events.filter((e) => e.eventDate === dateIso && e.eventTime), [events, dateIso]);
+
+  // hide the quiet late-night/early-morning hours by default, but always show any hour that has an event
+  const [expanded, setExpanded] = useState(false);
+  const hasEventOutsideRange = dayEvents.some((ev) => {
+    const h = parseInt(ev.eventTime.slice(0, 2), 10);
+    return h < 6 || h > 21;
+  });
+  const visibleHours = expanded || hasEventOutsideRange ? CAL_HOURS : CAL_HOURS.filter((h) => h >= 6 && h <= 21);
+  const startHour = visibleHours[0];
+  const endHour = visibleHours[visibleHours.length - 1];
+
+  // position events by exact hour+minute within the visible range (not snapped to the hour)
+  const positioned = useMemo(() => {
+    const inRange = dayEvents.filter((ev) => {
+      const h = parseInt(ev.eventTime.slice(0, 2), 10);
+      return h >= startHour && h <= endHour;
+    });
+    return layoutDayEvents(inRange, rowH).map((p) => ({ ...p, top: p.top - startHour * rowH }));
+  }, [dayEvents, startHour, endHour]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontFamily: "Fraunces, serif", fontSize: 14.5, fontWeight: 600, color: C.ink }}>
+          {isToday ? "Hôm nay" : WEEKDAY_LABELS_FULL[selectedDate.getDay()]}, {selectedDate.getDate()} Thg {MONTHS[selectedDate.getMonth()]}
+        </span>
+        {dayEvents.length > 0 && (
+          <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: C.inkFaint }}>{dayEvents.length} lịch</span>
+        )}
+      </div>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", background: C.card }}>
+        {!expanded && !hasEventOutsideRange && (
+          <button
+            onClick={() => setExpanded(true)}
+            style={{
+              width: "100%",
+              border: "none",
+              borderBottom: `1px solid ${C.line}`,
+              background: "transparent",
+              cursor: "pointer",
+              padding: "6px 10px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 10.5,
+              fontWeight: 600,
+              color: C.inkFaint,
+              textAlign: "center",
+            }}
+          >
+            Xem thêm giờ trong ngày (0:00–5:00, 22:00–23:00)
+          </button>
+        )}
+        <div style={{ display: "flex" }}>
+          <div style={{ width: 46, flexShrink: 0 }}>
+            {visibleHours.map((hour, idx) => (
+              <div
+                key={hour}
+                style={{
+                  height: rowH,
+                  borderTop: idx === 0 ? "none" : `1px solid ${C.line}`,
+                  textAlign: "right",
+                  padding: "3px 8px",
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: 10,
+                  color: C.inkFaint,
+                  boxSizing: "border-box",
+                }}
+              >
+                {pad2(hour)}:00
+              </div>
+            ))}
+          </div>
+          <div style={{ flex: 1, position: "relative", borderLeft: `1px solid ${C.line}`, height: visibleHours.length * rowH }}>
+            {visibleHours.map((hour, idx) => (
+              <div
+                key={hour}
+                style={{
+                  position: "absolute",
+                  top: idx * rowH,
+                  left: 0,
+                  right: 0,
+                  height: rowH,
+                  borderTop: idx === 0 ? "none" : `1px solid ${C.line}`,
+                  boxSizing: "border-box",
+                }}
+              />
+            ))}
+            {positioned.map(({ ev, top }) => {
+              const t = eventTypes[ev.eventType] || eventTypes.appointment;
+              const confirmed = !!ev.confirmedAt;
+              return (
+                <button
+                  key={ev.id}
+                  onClick={() => onEventClick(ev)}
+                  style={{
+                    position: "absolute",
+                    top: top + 2,
+                    left: 6,
+                    right: 6,
+                    textAlign: "left",
+                    border: confirmed ? `1px dashed ${t.color}` : "none",
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    padding: "6px 9px",
+                    background: confirmed ? "transparent" : t.soft,
+                    opacity: confirmed ? 0.6 : 1,
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: t.color }}>
+                    {confirmed && <CheckCircle2 size={11} strokeWidth={2.5} />}
+                    {formatTimeHM(ev.eventTime)} · {t.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: C.ink,
+                      marginTop: 2,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      textDecoration: confirmed ? "line-through" : "none",
+                    }}
+                  >
+                    {ev.title}
+                  </div>
+                  {ev.location && <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 2 }}>{ev.location}</div>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, events, onEdit, eventTypes, onAddCategory }) {
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [showAddForm, setShowAddForm] = useState(!mobile);
+  const missingRequired = eventDraft.title.trim().length === 0 || !eventDraft.eventDate;
+  const isPast = !missingRequired && isPastDateTime(eventDraft.eventDate, eventDraft.eventTime);
+  const canAdd = !missingRequired && !isPast;
+
+  // default the add-event panel to collapsed on mobile / expanded on web, but only
+  // when switching between the two — the person can still toggle it manually after
+  useEffect(() => {
+    setShowAddForm(!mobile);
+  }, [mobile]);
+
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+
+  // if the selected day ever falls outside the displayed week (e.g. after a reload), snap back to Monday
+  useEffect(() => {
+    const selIso = localISODate(selectedDate);
+    if (!weekDates.some((d) => localISODate(d) === selIso)) setSelectedDate(weekDates[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
+
+  const goPrevWeek = () => {
+    setWeekStart((w) => addDays(w, -7));
+    setSelectedDate((d) => addDays(d, -7));
+  };
+  const goNextWeek = () => {
+    setWeekStart((w) => addDays(w, 7));
+    setSelectedDate((d) => addDays(d, 7));
+  };
+  const goToday = () => {
+    setWeekStart(getWeekStart(new Date()));
+    setSelectedDate(new Date());
+  };
+
+  const handleAdd = async () => {
+    await onAddEvent();
+    if (mobile) setShowAddForm(false);
+  };
+
+  const weekEnd = addDays(weekStart, 6);
+  const rangeLabel =
+    weekStart.getMonth() === weekEnd.getMonth()
+      ? `${weekStart.getDate()} – ${weekEnd.getDate()} Thg ${MONTHS[weekStart.getMonth()]}, ${weekStart.getFullYear()}`
+      : `${weekStart.getDate()} Thg ${MONTHS[weekStart.getMonth()]} – ${weekEnd.getDate()} Thg ${MONTHS[weekEnd.getMonth()]}, ${weekEnd.getFullYear()}`;
+
+  return (
+    <div>
+      {mobile && !showAddForm ? (
+        <button
+          onClick={() => setShowAddForm(true)}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            border: `1.5px dashed ${C.line}`,
+            borderRadius: 10,
+            padding: "10px 14px",
+            background: C.card,
+            color: C.teal,
+            fontFamily: "Inter, sans-serif",
+            fontWeight: 600,
+            fontSize: 12.5,
+            cursor: "pointer",
+            marginBottom: 16,
+          }}
+        >
+          <Plus size={15} strokeWidth={2.5} />
+          Thêm lịch mới
+        </button>
+      ) : (
+        <div style={{ background: C.card, borderRadius: 10, padding: mobile ? 14 : "16px 18px", boxShadow: "0 1px 2px rgba(32,38,31,0.06)", marginBottom: mobile ? 16 : 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: mobile ? 12.5 : 13.5, color: C.ink }}>Thêm lịch mới</div>
+            {mobile && (
+              <button
+                onClick={() => setShowAddForm(false)}
+                title="Thu gọn"
+                style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 2 }}
+              >
+                <ChevronLeft size={14} style={{ transform: "rotate(90deg)" }} />
+              </button>
+            )}
+          </div>
+          <EventFormFields draft={eventDraft} onChange={onEventDraftChange} idPrefix="new-event" eventTypes={eventTypes} onAddCategory={onAddCategory} restrictPast />
+          <button
+            onClick={handleAdd}
+            disabled={!canAdd}
+            title={!canAdd ? (missingRequired ? "Cần nhập tiêu đề và ngày" : "Không thể đặt lịch cho thời điểm đã qua") : undefined}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              border: "none",
+              borderRadius: 8,
+              padding: mobile ? "10px 14px" : "10px 16px",
+              background: canAdd ? C.ink : C.line,
+              color: canAdd ? C.paper : C.inkFaint,
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 600,
+              fontSize: mobile ? 12.5 : 13.5,
+              cursor: canAdd ? "pointer" : "not-allowed",
+              marginTop: 14,
+            }}
+          >
+            <Plus size={15} strokeWidth={2.5} />
+            Thêm vào lịch
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: mobile ? 6 : 10, flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontFamily: "Fraunces, serif", fontSize: mobile ? 13.5 : 16, fontWeight: 600, color: C.ink }}>{rangeLabel}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            onClick={goPrevWeek}
+            title="Tuần trước"
+            style={{ border: `1px solid ${C.line}`, background: C.card, borderRadius: 6, padding: "5px 6px", cursor: "pointer", color: C.inkSoft, display: "flex" }}
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <button
+            onClick={goToday}
+            style={{
+              border: `1px solid ${C.line}`,
+              background: C.card,
+              borderRadius: 6,
+              padding: "5px 10px",
+              cursor: "pointer",
+              color: C.inkSoft,
+              fontFamily: "Inter, sans-serif",
+              fontSize: 11.5,
+              fontWeight: 600,
+            }}
+          >
+            Hôm nay
+          </button>
+          <button
+            onClick={goNextWeek}
+            title="Tuần sau"
+            style={{ border: `1px solid ${C.line}`, background: C.card, borderRadius: 6, padding: "5px 6px", cursor: "pointer", color: C.inkSoft, display: "flex" }}
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>
+
+      {mobile ? (
+        <>
+          <DayStrip weekDates={weekDates} selectedDate={selectedDate} onSelect={setSelectedDate} events={events} />
+          <DayTimeline selectedDate={selectedDate} events={events} onEventClick={onEdit} eventTypes={eventTypes} />
+        </>
+      ) : (
+        <WeekCalendarGrid mobile={false} weekStart={weekStart} events={events} onEventClick={onEdit} eventTypes={eventTypes} />
+      )}
+    </div>
+  );
+}
+
 function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
   return (
     <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          background: C.tealSoft,
+          color: C.teal,
+          borderRadius: 8,
+          padding: "7px 10px",
+          marginBottom: 16,
+          fontFamily: "Inter, sans-serif",
+          fontSize: 11.5,
+          fontWeight: 600,
+        }}
+      >
+        <Clock3 size={13} strokeWidth={2.5} />
+        Chỉ lưu {ARCHIVE_RETENTION_DAYS} ngày gần nhất · việc hoàn thành quá {ARCHIVE_RETENTION_DAYS} ngày sẽ tự động bị xoá
+      </div>
+
       {archiveGroups.length === 0 ? (
         <EmptyState text="Chưa có công việc nào được lưu trữ. Hoàn thành một việc để lưu vào đây." />
       ) : (
@@ -1459,19 +2519,56 @@ export default function App() {
   const [resultDraft, setResultDraft] = useState({ text: "", files: [] });
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editDraft, setEditDraft] = useState({ title: "", requiresResult: false, expectedNote: "" });
+  const [events, setEvents] = useState([]);
+  const [eventDraft, setEventDraft] = useState(emptyEventForm);
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [editEventDraft, setEditEventDraft] = useState(emptyEventForm);
+  // user-created calendar categories, layered on top of BASE_EVENT_TYPES (see "+ Thêm danh mục mới")
+  const [customEventTypes, setCustomEventTypes] = useState({
+    personal: { label: "Cá nhân", color: CUSTOM_TYPE_PALETTE[0].color, soft: CUSTOM_TYPE_PALETTE[0].soft },
+  });
+  const eventTypes = useMemo(() => ({ ...BASE_EVENT_TYPES, ...customEventTypes }), [customEventTypes]);
   const [, setTick] = useState(0);
 
-  // load tasks from Supabase once when the app opens
+  // load tasks + calendar events from Supabase once when the app opens
   useEffect(() => {
-    dbFetchTasks()
-      .then((rows) => setTasks(rows))
+    Promise.all([dbFetchTasks(), dbFetchEvents()])
+      .then(([taskRows, eventRows]) => {
+        // drop any archived (done) tasks that already fell outside the 7-day
+        // retention window while the app was closed (and clean them up in storage too)
+        const expiredTasks = taskRows.filter(isArchivedTaskExpired);
+        expiredTasks.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
+        setTasks(taskRows.filter((t) => !isArchivedTaskExpired(t)));
+
+        // drop any confirmed events that already passed their 3-day auto-delete window
+        // while the app was closed (and clean them up in storage too)
+        const expiredEvents = eventRows.filter(isConfirmedExpired);
+        expiredEvents.forEach((ev) => dbDeleteEvent(ev.id).catch(() => {}));
+        setEvents(eventRows.filter((ev) => !isConfirmedExpired(ev)));
+      })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
   }, []);
 
-  // re-render every minute so live "doing" timers stay accurate
+  // re-render every minute so live "doing" timers stay accurate, and sweep away
+  // archived tasks past their 7-day retention window and confirmed calendar
+  // events that have just crossed their 3-day auto-delete window
   useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 60000);
+    const id = setInterval(() => {
+      setTick((n) => n + 1);
+      setTasks((prev) => {
+        const expired = prev.filter(isArchivedTaskExpired);
+        if (expired.length === 0) return prev;
+        expired.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
+        return prev.filter((t) => !isArchivedTaskExpired(t));
+      });
+      setEvents((prev) => {
+        const expired = prev.filter(isConfirmedExpired);
+        if (expired.length === 0) return prev;
+        expired.forEach((ev) => dbDeleteEvent(ev.id).catch(() => {}));
+        return prev.filter((ev) => !isConfirmedExpired(ev));
+      });
+    }, 60000);
     return () => clearInterval(id);
   }, []);
 
@@ -1639,6 +2736,107 @@ export default function App() {
     }
   };
 
+  const addEvent = async () => {
+    const title = eventDraft.title.trim();
+    if (!title || !eventDraft.eventDate) return;
+    // Belt-and-suspenders: re-check here too, in case the form sat open long enough
+    // for the originally-valid time to slip into the past before the button was pressed.
+    if (isPastDateTime(eventDraft.eventDate, eventDraft.eventTime)) {
+      alert("Không thể đặt lịch cho thời điểm đã qua. Vui lòng chọn lại ngày/giờ.");
+      return;
+    }
+    const draft = {
+      ...eventDraft,
+      title,
+      description: eventDraft.description.trim(),
+      location: eventDraft.location.trim(),
+    };
+    setEventDraft(emptyEventForm());
+    try {
+      const saved = await dbInsertEvent(draft);
+      setEvents((prev) => [...prev, saved]);
+    } catch (err) {
+      alert("Không thêm được lịch: " + err.message);
+    }
+  };
+
+  // creates a new calendar category from the "+ Thêm danh mục mới" dropdown option
+  // and returns its key so the form can select it immediately
+  const addEventCategory = (name) => {
+    const key = `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    const palette = CUSTOM_TYPE_PALETTE[Object.keys(customEventTypes).length % CUSTOM_TYPE_PALETTE.length];
+    setCustomEventTypes((prev) => ({ ...prev, [key]: { label: name, color: palette.color, soft: palette.soft } }));
+    return key;
+  };
+
+  const openEditEvent = (event) => {
+    setEditEventDraft({
+      title: event.title,
+      eventType: event.eventType,
+      eventDate: event.eventDate,
+      eventTime: event.eventTime ? formatTimeHM(event.eventTime) : "",
+      location: event.location || "",
+      description: event.description || "",
+    });
+    setEditingEventId(event.id);
+  };
+
+  const confirmEditEvent = async () => {
+    const title = editEventDraft.title.trim();
+    if (!title || !editEventDraft.eventDate) return;
+    const id = editingEventId;
+    const draft = { ...editEventDraft, title, description: editEventDraft.description.trim(), location: editEventDraft.location.trim() };
+
+    setEvents((prev) =>
+      prev.map((ev) =>
+        ev.id === id
+          ? {
+              ...ev,
+              title: draft.title,
+              eventType: draft.eventType,
+              eventDate: draft.eventDate,
+              eventTime: draft.eventTime || null,
+              location: draft.location || null,
+              description: draft.description || null,
+            }
+          : ev
+      )
+    );
+    setEditingEventId(null);
+
+    try {
+      await dbUpdateEvent(id, draft);
+    } catch (err) {
+      alert("Không lưu được thay đổi: " + err.message);
+    }
+  };
+
+  const deleteEvent = async (id) => {
+    setEvents((prev) => prev.filter((ev) => ev.id !== id));
+    setEditingEventId((cur) => (cur === id ? null : cur));
+    try {
+      await dbDeleteEvent(id);
+    } catch (err) {
+      alert("Không xoá được lịch: " + err.message);
+    }
+  };
+
+  // marks/unmarks a calendar event as "Xác nhận" — the event keeps showing (with a
+  // distinct look) rather than being deleted right away; it only auto-deletes
+  // CONFIRMED_AUTO_DELETE_MS after confirmedAt (see the pruning effects above)
+  const toggleEventConfirm = async (id, confirm) => {
+    const confirmedAt = confirm ? new Date().toISOString() : null;
+    setEvents((prev) => prev.map((ev) => (ev.id === id ? { ...ev, confirmedAt } : ev)));
+    try {
+      await dbSetEventConfirmed(id, confirmedAt);
+    } catch (err) {
+      alert("Không cập nhật được trạng thái xác nhận: " + err.message);
+    }
+  };
+
+  // count of events today or later, used for the sidebar badge on the calendar tab
+  const upcomingEventCount = useMemo(() => events.filter((ev) => ev.eventDate >= todayISO()).length, [events]);
+
   const activeTasks = useMemo(
     () => tasks.filter((t) => t.status !== "done").sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     [tasks]
@@ -1709,10 +2907,39 @@ export default function App() {
     return days;
   }, [tasks]);
 
+  // calendar stats for the dashboard: today / this-week counts, category breakdown
+  const eventsToday = useMemo(() => events.filter((ev) => ev.eventDate === todayISO()).length, [events]);
+  const eventsThisWeek = useMemo(() => {
+    const start = getWeekStart(new Date());
+    const startIso = localISODate(start);
+    const endIso = localISODate(addDays(start, 6));
+    return events.filter((ev) => ev.eventDate >= startIso && ev.eventDate <= endIso).length;
+  }, [events]);
+
+  const eventTypeChartData = useMemo(
+    () =>
+      Object.entries(eventTypes)
+        .map(([key, t]) => ({ name: t.label, value: events.filter((ev) => ev.eventType === key).length, color: t.color }))
+        .filter((d) => d.value > 0),
+    [events, eventTypes]
+  );
+
   const titleFor = (key) => NAV_ITEMS.find((n) => n.key === key)?.label;
 
   const renderView = () => {
-    if (view === "dashboard") return <DashboardContent mobile={mobile} stats={stats} staleTasks={staleTasks} statusChartData={statusChartData} trendData={trendData} />;
+    if (view === "dashboard")
+      return (
+        <DashboardContent
+          mobile={mobile}
+          stats={stats}
+          staleTasks={staleTasks}
+          statusChartData={statusChartData}
+          trendData={trendData}
+          eventsToday={eventsToday}
+          eventsThisWeek={eventsThisWeek}
+          eventTypeChartData={eventTypeChartData}
+        />
+      );
     if (view === "tasks")
       return (
         <TasksContent
@@ -1730,11 +2957,25 @@ export default function App() {
           onEdit={openEditTask}
         />
       );
+    if (view === "calendar")
+      return (
+        <CalendarContent
+          mobile={mobile}
+          eventDraft={eventDraft}
+          onEventDraftChange={setEventDraft}
+          onAddEvent={addEvent}
+          events={events}
+          onEdit={openEditEvent}
+          eventTypes={eventTypes}
+          onAddCategory={addEventCategory}
+        />
+      );
     return <ArchiveContent mobile={mobile} archiveGroups={archiveGroups} onRestore={restoreTask} onDelete={deleteTask} />;
   };
 
   const completingTask = completingTaskId != null ? tasks.find((t) => t.id === completingTaskId) : null;
   const editingTask = editingTaskId != null ? tasks.find((t) => t.id === editingTaskId) : null;
+  const editingEvent = editingEventId != null ? events.find((ev) => ev.id === editingEventId) : null;
   const modal = completingTask ? (
     <ResultModal
       task={completingTask}
@@ -1754,6 +2995,18 @@ export default function App() {
       onExpectedNoteChange={(v) => setEditDraft((prev) => ({ ...prev, expectedNote: v }))}
       onCancel={() => setEditingTaskId(null)}
       onConfirm={confirmEditTask}
+    />
+  ) : editingEvent ? (
+    <EditEventModal
+      event={editingEvent}
+      draft={editEventDraft}
+      onChange={setEditEventDraft}
+      onCancel={() => setEditingEventId(null)}
+      onConfirm={confirmEditEvent}
+      onDelete={deleteEvent}
+      onToggleConfirm={toggleEventConfirm}
+      eventTypes={eventTypes}
+      onAddCategory={addEventCategory}
     />
   ) : null;
 
@@ -1838,10 +3091,10 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.paper, fontFamily: "Inter, sans-serif", display: "flex", justifyContent: "center", padding: "28px 20px" }}>
+    <div style={{ minHeight: "100vh", background: C.paper, fontFamily: "Inter, sans-serif", display: "flex", justifyContent: "center", padding: "28px 32px" }}>
       <style>{GLOBAL_STYLE}</style>
-      <div style={{ width: "100%", maxWidth: 1040, display: "flex", gap: 20 }}>
-        <aside style={{ width: 208, flexShrink: 0, display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ width: "100%", maxWidth: 1400, display: "flex", gap: 24 }}>
+        <aside style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", gap: 18 }}>
           <div>
             <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
             <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>Danh sách cá nhân</div>
@@ -1877,6 +3130,11 @@ export default function App() {
                 )}
                 {key === "archive" && doneTasks.length > 0 && (
                   <span style={{ marginLeft: "auto", fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>{doneTasks.length}</span>
+                )}
+                {key === "calendar" && upcomingEventCount > 0 && (
+                  <span style={{ marginLeft: "auto", fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>
+                    {upcomingEventCount}
+                  </span>
                 )}
               </button>
             ))}
