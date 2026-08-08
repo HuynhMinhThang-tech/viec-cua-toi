@@ -3093,7 +3093,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.paper, fontFamily: "Inter, sans-serif", display: "flex", justifyContent: "center", padding: "28px 32px" }}>
       <style>{GLOBAL_STYLE}</style>
-      <div style={{ width: "100%", maxWidth: 1400, display: "flex", gap: 24 }}>
+      <div style={{ width: "100%", maxWidth: 1200, display: "flex", gap: 24 }}>
         <aside style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", gap: 18 }}>
           <div>
             <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
