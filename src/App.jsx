@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
   ListTodo,
@@ -164,6 +164,15 @@ function detectDevice() {
   const isPhoneUA = /iPhone|iPod|Android.*Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile/i.test(ua);
   const isNarrowScreen = window.matchMedia("(max-width: 768px)").matches;
   return isPhoneUA || isNarrowScreen ? "mobile" : "web";
+}
+
+// Phân biệt "điện thoại thật" (kể cả khi cài PWA lẫn khi mở tab trình duyệt bình thường trên máy) với
+// việc chỉ đang bấm nút chuyển "App" để xem thử giao diện mobile trên trình duyệt máy tính.
+// Trên điện thoại thật thì hiển thị full màn hình, không cần khung mockup điện thoại giả nữa.
+function isRealMobileDevice() {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator?.userAgent || "";
+  return /Android|iPhone|iPad|iPod|Mobile|IEMobile/i.test(ua);
 }
 
 const STATUS = {
@@ -1595,7 +1604,7 @@ function TasksContent({
                 onAddTask();
               }
             }}
-            placeholder="Nhập công việc mới... "
+            placeholder="Nhập công việc mới... (Enter để thêm, Shift+Enter để xuống dòng)"
             rows={1}
             style={{
               flex: 1,
@@ -2488,6 +2497,15 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
 const GLOBAL_STYLE = `
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
   @keyframes fuse-flicker { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 50% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.7; } }
+  /* ---- PWA trên điện thoại: khi mở từ màn hình chính (standalone), chặn hiệu ứng
+     cuộn nẩy (rubber-banding) làm lộ khoảng trắng phía sau, và chặn zoom 2 ngón tay ngoài ý muốn ---- */
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: ${C.card};
+    overscroll-behavior: none;
+    touch-action: pan-x pan-y;
+  }
   .file-drop {
     display: flex;
     align-items: center;
@@ -2529,6 +2547,20 @@ export default function App() {
   });
   const eventTypes = useMemo(() => ({ ...BASE_EVENT_TYPES, ...customEventTypes }), [customEventTypes]);
   const [, setTick] = useState(0);
+  // Theo dõi khi người dùng TỰ TAY bấm nút chuyển Web/App: nếu có, không tự động
+  // ghi đè lựa chọn đó nữa mỗi khi cửa sổ đổi kích thước (giống cơ chế bên app "Sổ Tài Chính").
+  const manualOverride = useRef(false);
+
+  useEffect(() => {
+    const onResize = () => { if (!manualOverride.current) setDevice(detectDevice()); };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const handleDeviceChange = (v) => {
+    manualOverride.current = true;
+    setDevice(v);
+  };
 
   // load tasks + calendar events from Supabase once when the app opens
   useEffect(() => {
@@ -3034,7 +3066,77 @@ export default function App() {
     );
   }
 
+  // ---------- Khung mobile ----------
+  // Trên điện thoại thật (kể cả PWA standalone lẫn tab trình duyệt bình thường), hiển thị TRÀN MÀN HÌNH,
+  // không còn khung/viền/bóng đổ giả lập điện thoại — vì bản thân màn hình đã là điện thoại rồi.
+  // Khung mockup (viền đen bo tròn) chỉ giữ lại khi xem thử "App" trên trình duyệt máy tính, cho dễ hình dung.
   if (mobile) {
+    const realDevice = isRealMobileDevice();
+
+    const header = (
+      <div
+        style={{
+          padding: realDevice ? "calc(env(safe-area-inset-top, 0px) + 12px) 16px 10px" : "16px 16px 10px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 17, color: C.ink }}>Việc Của Tôi</div>
+          <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 1 }}>{titleFor(view)}</div>
+        </div>
+        <DeviceToggle device={device} onChange={handleDeviceChange} compact />
+      </div>
+    );
+
+    const bottomNav = (
+      <div
+        style={{
+          display: "flex",
+          borderTop: `1px solid ${C.line}`,
+          background: C.card,
+          padding: realDevice ? "8px 6px calc(env(safe-area-inset-bottom, 0px) + 8px)" : "8px 6px",
+          gap: 4,
+        }}
+      >
+        {NAV_ITEMS.map(({ key, label, Icon }) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            style={{
+              flex: 1,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+              padding: "6px 0",
+              color: view === key ? C.teal : C.inkFaint,
+            }}
+          >
+            <Icon size={18} strokeWidth={2.3} />
+            <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
+          </button>
+        ))}
+      </div>
+    );
+
+    if (realDevice) {
+      return (
+        <div style={{ position: "fixed", inset: 0, background: C.paper, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: "Inter, sans-serif" }}>
+          <style>{GLOBAL_STYLE}</style>
+          {header}
+          <div style={{ flex: 1, overflowY: "auto", padding: "6px 16px 16px" }}>{renderView()}</div>
+          {bottomNav}
+          {modal}
+        </div>
+      );
+    }
+
+    // ---- Preview trên desktop: giữ khung bezel điện thoại giả lập, giống hệt app "Sổ Tài Chính" ----
     return (
       <div style={{ minHeight: "100vh", background: C.paper, display: "flex", justifyContent: "center", padding: "24px 12px", fontFamily: "Inter, sans-serif" }}>
         <style>{GLOBAL_STYLE}</style>
@@ -3051,39 +3153,9 @@ export default function App() {
             flexDirection: "column",
           }}
         >
-          <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 17, color: C.ink }}>Việc Của Tôi</div>
-              <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 1 }}>{titleFor(view)}</div>
-            </div>
-            <DeviceToggle device={device} onChange={setDevice} compact />
-          </div>
-
+          {header}
           <div style={{ height: 560, overflowY: "auto", padding: "6px 16px 16px" }}>{renderView()}</div>
-
-          <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, background: C.card, padding: "8px 6px", gap: 4 }}>
-            {NAV_ITEMS.map(({ key, label, Icon }) => (
-              <button
-                key={key}
-                onClick={() => setView(key)}
-                style={{
-                  flex: 1,
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 3,
-                  padding: "6px 0",
-                  color: view === key ? C.teal : C.inkFaint,
-                }}
-              >
-                <Icon size={18} strokeWidth={2.3} />
-                <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
-              </button>
-            ))}
-          </div>
+          {bottomNav}
         </div>
         {modal}
       </div>
@@ -3093,7 +3165,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.paper, fontFamily: "Inter, sans-serif", display: "flex", justifyContent: "center", padding: "28px 32px" }}>
       <style>{GLOBAL_STYLE}</style>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", gap: 24 }}>
+      <div style={{ width: "100%", maxWidth: 1400, display: "flex", gap: 24 }}>
         <aside style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", gap: 18 }}>
           <div>
             <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
@@ -3142,7 +3214,7 @@ export default function App() {
 
           <div>
             <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6, fontWeight: 600 }}>GIAO DIỆN</div>
-            <DeviceToggle device={device} onChange={setDevice} />
+            <DeviceToggle device={device} onChange={handleDeviceChange} />
           </div>
         </aside>
 
