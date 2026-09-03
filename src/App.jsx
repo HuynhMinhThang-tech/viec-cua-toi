@@ -25,6 +25,8 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Download,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -73,8 +75,12 @@ function isConfirmedExpired(ev) {
 
 // True once an archived (done) task has passed the 7-day retention window,
 // i.e. it fell out of the "7 ngày qua" trend chart's range and can be purged.
+// Chỉ áp dụng cho việc CHA (parentId == null) — việc con đã xong nhưng cha
+// chưa xong thì không tự xoá độc lập; con chỉ bị dọn cùng lúc với cha (khi
+// cha bị xoá, ON DELETE CASCADE ở DB sẽ xoá luôn con, và state cũng lọc theo).
 function isArchivedTaskExpired(task) {
   if (task.status !== "done" || !task.completedAt) return false;
+  if (task.parentId) return false;
   return daysSince(task.completedAt) >= ARCHIVE_RETENTION_DAYS;
 }
 
@@ -266,6 +272,7 @@ function mapRow(row) {
     status: row.status,
     requiresResult: row.requires_result,
     expectedNote: row.expected_note,
+    parentId: row.parent_id ?? null,
     createdAt: row.created_at,
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -292,6 +299,7 @@ async function dbInsertTask(task) {
       requires_result: task.requiresResult,
       expected_note: task.expectedNote,
       created_at: task.createdAt,
+      parent_id: task.parentId || null,
     })
     .select()
     .single();
@@ -1059,6 +1067,101 @@ function EditTaskModal({ task, draft, onTitleChange, onToggleNeedsResult, onExpe
   );
 }
 
+/* full-size image viewer + download, opened from a result-file thumbnail (e.g. in Lưu trữ) */
+function ImageLightboxModal({ image, onClose }) {
+  if (!image) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(20,24,18,0.86)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        zIndex: 60,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: "100%", maxHeight: "100%", display: "flex", flexDirection: "column", gap: 10 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <span
+            style={{
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: "#fff",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {image.name}
+          </span>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <a
+              href={image.url}
+              download={image.name}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Tải ảnh về"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: "none",
+                borderRadius: 8,
+                padding: "6px 10px",
+                background: "rgba(255,255,255,0.15)",
+                color: "#fff",
+                fontFamily: "Inter, sans-serif",
+                fontSize: 11.5,
+                fontWeight: 600,
+                textDecoration: "none",
+                cursor: "pointer",
+              }}
+            >
+              <Download size={13} strokeWidth={2.5} />
+              Tải về
+            </a>
+            <button
+              onClick={onClose}
+              title="Đóng"
+              style={{
+                border: "none",
+                borderRadius: 8,
+                padding: "6px 8px",
+                background: "rgba(255,255,255,0.15)",
+                color: "#fff",
+                cursor: "pointer",
+                display: "flex",
+              }}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+        <img
+          src={image.url}
+          alt={image.name}
+          style={{
+            maxWidth: "100%",
+            maxHeight: "80vh",
+            borderRadius: 10,
+            objectFit: "contain",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
+            display: "block",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /* shared form fields for creating/editing a calendar event */
 function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory, restrictPast = false }) {
   const set = (patch) => onChange({ ...draft, ...patch });
@@ -1577,6 +1680,338 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
   );
 }
 
+/* card 1 task — dùng cho cả việc cha (có thể mở rộng/thêm con) và việc con (rút gọn) */
+function TaskCard({
+  task,
+  mobile,
+  childTasks = [],
+  isChild = false,
+  expanded = false,
+  onToggleExpand,
+  onStatusClick,
+  onDelete,
+  onEdit,
+  addingSubtask = false,
+  subtaskInput = "",
+  onSubtaskInputChange,
+  subtaskNeedsResult = false,
+  onSubtaskToggleNeedsResult,
+  subtaskExpectedNote = "",
+  onSubtaskExpectedNoteChange,
+  onOpenAddSubtask,
+  onCancelAddSubtask,
+  onConfirmAddSubtask,
+  parentStatus = null,
+}) {
+  const lockTodo = task.status === "doing";
+  const hasChildren = childTasks.length > 0;
+  const hasUnfinishedChild = childTasks.some((c) => c.status !== "done");
+  // việc con chỉ được chuyển sang "Đang thực hiện" sau khi việc cha đã được bấm "Đang thực hiện"
+  // (hoặc cha đã "Đã hoàn thành", dù trường hợp này gần như không xảy ra vì cha chỉ hoàn thành
+  // được khi mọi con đã xong)
+  const parentNotStarted = isChild && parentStatus !== "doing" && parentStatus !== "done";
+
+  return (
+    <div>
+      <div
+        style={{
+          background: C.card,
+          borderLeft: `3px solid ${STATUS[task.status].color}`,
+          borderRadius: 8,
+          padding: mobile ? "12px" : "14px 16px",
+          boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, minWidth: 0, flex: 1 }}>
+            {!isChild && hasChildren && (
+              <button
+                onClick={onToggleExpand}
+                title={expanded ? "Thu gọn công việc con" : "Mở rộng công việc con"}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: C.inkSoft,
+                  cursor: "pointer",
+                  padding: 2,
+                  marginTop: 2,
+                  flexShrink: 0,
+                  display: "flex",
+                }}
+              >
+                <ChevronDown
+                  size={16}
+                  style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s ease" }}
+                />
+              </button>
+            )}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: mobile ? 13.5 : 14.5,
+                  fontWeight: 500,
+                  color: isChild && task.status === "done" ? C.inkSoft : C.ink,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  textDecoration: isChild && task.status === "done" ? "line-through" : "none",
+                  textDecorationColor: C.inkFaint,
+                }}
+              >
+                {task.title}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>
+                  Tạo ngày {formatVN(task.createdAt)}
+                </span>
+                {task.requiresResult && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontFamily: "Inter, sans-serif",
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      color: C.teal,
+                      background: C.tealSoft,
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                    }}
+                  >
+                    <FileCheck2 size={10} strokeWidth={2.5} />
+                    Yêu cầu kết quả
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+            {!isChild && (
+              <button
+                onClick={onOpenAddSubtask}
+                style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
+                title="Thêm công việc con"
+              >
+                <Plus size={15} />
+              </button>
+            )}
+            <button
+              onClick={() => onEdit(task)}
+              style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
+              title="Sửa công việc"
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              onClick={() => onDelete(task.id)}
+              style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
+              title={!isChild && hasChildren ? "Xoá công việc này và toàn bộ việc con" : "Xoá công việc"}
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+          {Object.keys(STATUS).map((s) => {
+            // việc con đã hoàn thành thì khoá cứng cả 3 nút trạng thái — không cho đổi lại nữa
+            const childLocked = isChild && task.status === "done";
+            const disabledTodo = s === "todo" && lockTodo;
+            const disabledDoneChildren = s === "done" && task.status !== "done" && hasUnfinishedChild;
+            // không cho nhảy thẳng từ "Chưa thực hiện" sang "Đã hoàn thành" — phải qua "Đang thực hiện" trước
+            const disabledDoneNotStarted = s === "done" && task.status === "todo";
+            const disabledDone = disabledDoneChildren || disabledDoneNotStarted;
+            const disabledDoingChild = s === "doing" && task.status !== "doing" && parentNotStarted;
+            const disabled = childLocked || disabledTodo || disabledDone || disabledDoingChild;
+            const active = task.status === s;
+            return (
+              <button
+                key={s}
+                onClick={() => !disabled && onStatusClick(task, s)}
+                disabled={disabled}
+                title={
+                  childLocked
+                    ? "Công việc con đã hoàn thành — không thể thay đổi"
+                    : disabledDoneChildren
+                    ? "Cần hoàn thành hết công việc con trước"
+                    : disabledDoneNotStarted
+                    ? "Cần chuyển sang \"Đang thực hiện\" trước khi hoàn thành"
+                    : disabledDoingChild
+                    ? "Cần bắt đầu \"Đang thực hiện\" ở công việc cha trước"
+                    : disabledTodo
+                    ? "Đã bắt đầu thực hiện — không thể quay lại"
+                    : undefined
+                }
+                style={{
+                  border: active ? "none" : `1px solid ${C.line}`,
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  borderRadius: 999,
+                  padding: "4px 10px",
+                  background: active ? STATUS[s].color : "transparent",
+                  color: active ? "#fff" : disabled ? C.inkFaint : C.inkSoft,
+                  opacity: disabled && !active ? 0.45 : 1,
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                {STATUS[s].label}
+              </button>
+            );
+          })}
+        </div>
+
+        <TaskTimerStrip task={task} />
+      </div>
+
+      {addingSubtask && (
+        <div
+          style={{
+            marginLeft: mobile ? 14 : 20,
+            marginTop: 8,
+            padding: mobile ? 12 : 14,
+            border: `1px dashed ${C.line}`,
+            borderRadius: 10,
+            background: "rgba(255,255,255,0.6)",
+          }}
+        >
+          <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12, color: C.ink, marginBottom: 8 }}>
+            Thêm công việc
+          </div>
+          <textarea
+            autoFocus
+            value={subtaskInput}
+            onChange={(e) => onSubtaskInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onConfirmAddSubtask();
+              }
+            }}
+            placeholder="Nhập công việc..."
+            rows={1}
+            style={{
+              width: "100%",
+              border: `1px solid ${C.line}`,
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 13,
+              color: C.ink,
+              outline: "none",
+              background: C.paper,
+              resize: "vertical",
+              boxSizing: "border-box",
+              whiteSpace: "pre-wrap",
+            }}
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <span style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkSoft }}>Khi hoàn thành:</span>
+            <div style={{ display: "inline-flex", background: "#E4E7DC", borderRadius: 999, padding: 3, gap: 2 }}>
+              {[
+                { key: false, label: "Không có kết quả" },
+                { key: true, label: "Có kết quả" },
+              ].map((opt) => (
+                <button
+                  key={String(opt.key)}
+                  onClick={() => onSubtaskToggleNeedsResult(opt.key)}
+                  style={{
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "5px 10px",
+                    borderRadius: 999,
+                    background: subtaskNeedsResult === opt.key ? C.ink : "transparent",
+                    color: subtaskNeedsResult === opt.key ? C.paper : C.inkSoft,
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {subtaskNeedsResult && (
+            <div style={{ marginTop: 8 }}>
+              <NoteField
+                value={subtaskExpectedNote}
+                onChange={onSubtaskExpectedNoteChange}
+                label="Mô tả mong đợi / ghi chú minh chứng"
+                placeholder="Mô tả bạn cần làm gì để chứng minh đã hoàn thành việc này..."
+              />
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+            <button
+              onClick={onCancelAddSubtask}
+              style={{
+                border: `1px solid ${C.line}`,
+                background: "transparent",
+                borderRadius: 8,
+                padding: "7px 12px",
+                fontFamily: "Inter, sans-serif",
+                fontSize: 12,
+                fontWeight: 600,
+                color: C.inkSoft,
+                cursor: "pointer",
+              }}
+            >
+              Huỷ
+            </button>
+            <button
+              onClick={onConfirmAddSubtask}
+              disabled={!subtaskInput.trim()}
+              style={{
+                border: "none",
+                background: subtaskInput.trim() ? C.ink : C.line,
+                color: subtaskInput.trim() ? C.paper : C.inkFaint,
+                borderRadius: 8,
+                padding: "7px 14px",
+                fontFamily: "Inter, sans-serif",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: subtaskInput.trim() ? "pointer" : "not-allowed",
+              }}
+            >
+              Thêm
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isChild && hasChildren && expanded && (
+        <div
+          style={{
+            marginLeft: mobile ? 14 : 20,
+            marginTop: 8,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            borderLeft: `2px solid ${C.line}`,
+            paddingLeft: mobile ? 10 : 14,
+          }}
+        >
+          {childTasks.map((c) => (
+            <TaskCard
+              key={c.id}
+              task={c}
+              mobile={mobile}
+              isChild
+              parentStatus={task.status}
+              onStatusClick={onStatusClick}
+              onDelete={onDelete}
+              onEdit={onEdit}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TasksContent({
   mobile,
   input,
@@ -1587,6 +2022,19 @@ function TasksContent({
   newTaskExpectedNote,
   onNewExpectedNoteChange,
   activeTasks,
+  childrenByParent,
+  expandedTasks,
+  onToggleExpand,
+  addingSubtaskFor,
+  subtaskInput,
+  onSubtaskInputChange,
+  subtaskNeedsResult,
+  onSubtaskToggleNeedsResult,
+  subtaskExpectedNote,
+  onSubtaskExpectedNoteChange,
+  onOpenAddSubtask,
+  onCancelAddSubtask,
+  onConfirmAddSubtask,
   onStatusClick,
   onDelete,
   onEdit,
@@ -1690,107 +2138,29 @@ function TasksContent({
         <EmptyState text="Chưa có công việc nào đang chờ. Thêm việc đầu tiên của bạn ở trên." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {activeTasks.map((t) => {
-            const lockTodo = t.status === "doing";
-            return (
-              <div
-                key={t.id}
-                style={{
-                  background: C.card,
-                  borderLeft: `3px solid ${STATUS[t.status].color}`,
-                  borderRadius: 8,
-                  padding: mobile ? "12px" : "14px 16px",
-                  boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div
-                      style={{
-                        fontFamily: "Inter, sans-serif",
-                        fontSize: mobile ? 13.5 : 14.5,
-                        fontWeight: 500,
-                        color: C.ink,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {t.title}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-                      <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>Tạo ngày {formatVN(t.createdAt)}</span>
-                      {t.requiresResult && (
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            fontFamily: "Inter, sans-serif",
-                            fontSize: 10.5,
-                            fontWeight: 600,
-                            color: C.teal,
-                            background: C.tealSoft,
-                            padding: "2px 8px",
-                            borderRadius: 999,
-                          }}
-                        >
-                          <FileCheck2 size={10} strokeWidth={2.5} />
-                          Yêu cầu kết quả
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                    <button
-                      onClick={() => onEdit(t)}
-                      style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
-                      title="Sửa công việc"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(t.id)}
-                      style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
-                      title="Xoá công việc"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                  {Object.keys(STATUS).map((s) => {
-                    const disabled = s === "todo" && lockTodo;
-                    const active = t.status === s;
-                    return (
-                      <button
-                        key={s}
-                        onClick={() => !disabled && onStatusClick(t, s)}
-                        disabled={disabled}
-                        title={disabled ? "Đã bắt đầu thực hiện — không thể quay lại" : undefined}
-                        style={{
-                          border: active ? "none" : `1px solid ${C.line}`,
-                          cursor: disabled ? "not-allowed" : "pointer",
-                          borderRadius: 999,
-                          padding: "4px 10px",
-                          background: active ? STATUS[s].color : "transparent",
-                          color: active ? "#fff" : disabled ? C.inkFaint : C.inkSoft,
-                          opacity: disabled ? 0.45 : 1,
-                          fontFamily: "Inter, sans-serif",
-                          fontSize: 11,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {STATUS[s].label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <TaskTimerStrip task={t} />
-              </div>
-            );
-          })}
+          {activeTasks.map((t) => (
+            <TaskCard
+              key={t.id}
+              task={t}
+              mobile={mobile}
+              childTasks={childrenByParent[t.id] || []}
+              expanded={expandedTasks.has(t.id)}
+              onToggleExpand={() => onToggleExpand(t.id)}
+              onStatusClick={onStatusClick}
+              onDelete={onDelete}
+              onEdit={onEdit}
+              addingSubtask={addingSubtaskFor === t.id}
+              subtaskInput={subtaskInput}
+              onSubtaskInputChange={onSubtaskInputChange}
+              subtaskNeedsResult={subtaskNeedsResult}
+              onSubtaskToggleNeedsResult={onSubtaskToggleNeedsResult}
+              subtaskExpectedNote={subtaskExpectedNote}
+              onSubtaskExpectedNoteChange={onSubtaskExpectedNoteChange}
+              onOpenAddSubtask={() => onOpenAddSubtask(t.id)}
+              onCancelAddSubtask={onCancelAddSubtask}
+              onConfirmAddSubtask={() => onConfirmAddSubtask(t.id)}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -2361,7 +2731,7 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
   );
 }
 
-function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
+function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenByParent, expandedTasks, onToggleExpand, onPreviewImage }) {
   return (
     <div>
       <div
@@ -2458,25 +2828,135 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete }) {
                             {t.result.files.map((f, i) => (
                               <div key={f.id || i}>
                                 {f.isImage && f.fileUrl && (
-                                  <img
-                                    src={f.fileUrl}
-                                    alt={f.fileName}
-                                    style={{ width: "100%", maxHeight: 130, objectFit: "cover", borderRadius: 8, marginBottom: 4 }}
-                                  />
+                                  <button
+                                    onClick={() => onPreviewImage({ url: f.fileUrl, name: f.fileName })}
+                                    title="Xem ảnh lớn"
+                                    style={{
+                                      display: "block",
+                                      width: "100%",
+                                      border: "none",
+                                      padding: 0,
+                                      background: "transparent",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <img
+                                      src={f.fileUrl}
+                                      alt={f.fileName}
+                                      style={{ width: "100%", maxHeight: 130, objectFit: "cover", borderRadius: 8, marginBottom: 4 }}
+                                    />
+                                  </button>
                                 )}
-                                <div
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 5,
-                                    fontFamily: "IBM Plex Mono, monospace",
-                                    fontSize: 10.5,
-                                    color: C.done,
-                                  }}
-                                >
-                                  <Paperclip size={11} strokeWidth={2.5} />
-                                  {f.fileName}
+                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                  <a
+                                    href={f.fileUrl || undefined}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => {
+                                      if (!f.fileUrl) e.preventDefault();
+                                    }}
+                                    title={f.fileUrl ? "Mở tệp" : "Không có tệp để mở"}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 5,
+                                      fontFamily: "IBM Plex Mono, monospace",
+                                      fontSize: 10.5,
+                                      color: f.fileUrl ? C.done : C.inkFaint,
+                                      textDecoration: "none",
+                                      cursor: f.fileUrl ? "pointer" : "default",
+                                      flex: 1,
+                                      minWidth: 0,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    <Paperclip size={11} strokeWidth={2.5} />
+                                    {f.fileName}
+                                  </a>
+                                  {f.fileUrl && (
+                                    <a
+                                      href={f.fileUrl}
+                                      download={f.fileName}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="Tải tệp về"
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        border: "none",
+                                        background: "transparent",
+                                        color: C.done,
+                                        cursor: "pointer",
+                                        padding: 3,
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      <Download size={12} strokeWidth={2.5} />
+                                    </a>
+                                  )}
                                 </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {(childrenByParent[t.id] || []).length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          onClick={() => onToggleExpand(t.id)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                            border: "none",
+                            background: "transparent",
+                            color: C.inkSoft,
+                            cursor: "pointer",
+                            padding: 0,
+                            fontFamily: "Inter, sans-serif",
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          <ChevronDown
+                            size={13}
+                            style={{
+                              transform: expandedTasks.has(t.id) ? "rotate(0deg)" : "rotate(-90deg)",
+                              transition: "transform 0.15s ease",
+                            }}
+                          />
+                          {(childrenByParent[t.id] || []).length} việc con
+                        </button>
+                        {expandedTasks.has(t.id) && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              marginLeft: 12,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                              borderLeft: `2px solid ${C.line}`,
+                              paddingLeft: 10,
+                            }}
+                          >
+                            {(childrenByParent[t.id] || []).map((c) => (
+                              <div key={c.id} style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: C.inkSoft }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span
+                                    style={{
+                                      textDecoration: c.status === "done" ? "line-through" : "none",
+                                      textDecorationColor: C.inkFaint,
+                                      color: c.status === "done" ? C.inkSoft : C.ink,
+                                    }}
+                                  >
+                                    {c.title}
+                                  </span>
+                                  {c.status !== "done" && <StatusPill status={c.status} />}
+                                </div>
+                                {c.result?.text && <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>{c.result.text}</div>}
                               </div>
                             ))}
                           </div>
@@ -2541,6 +3021,14 @@ export default function App() {
   const [eventDraft, setEventDraft] = useState(emptyEventForm);
   const [editingEventId, setEditingEventId] = useState(null);
   const [editEventDraft, setEditEventDraft] = useState(emptyEventForm);
+  // sub-task / cha-con: task nào đang mở rộng để xem con, panel thêm con đang mở cho task nào
+  const [expandedTasks, setExpandedTasks] = useState(() => new Set());
+  // ảnh đang được xem lớn (lightbox) từ kết quả công việc trong Lưu trữ — { url, name } hoặc null
+  const [previewImage, setPreviewImage] = useState(null);
+  const [addingSubtaskFor, setAddingSubtaskFor] = useState(null);
+  const [subtaskInput, setSubtaskInput] = useState("");
+  const [subtaskNeedsResult, setSubtaskNeedsResult] = useState(false);
+  const [subtaskExpectedNote, setSubtaskExpectedNote] = useState("");
   // user-created calendar categories, layered on top of BASE_EVENT_TYPES (see "+ Thêm danh mục mới")
   const [customEventTypes, setCustomEventTypes] = useState({
     personal: { label: "Cá nhân", color: CUSTOM_TYPE_PALETTE[0].color, soft: CUSTOM_TYPE_PALETTE[0].soft },
@@ -2566,11 +3054,13 @@ export default function App() {
   useEffect(() => {
     Promise.all([dbFetchTasks(), dbFetchEvents()])
       .then(([taskRows, eventRows]) => {
-        // drop any archived (done) tasks that already fell outside the 7-day
-        // retention window while the app was closed (and clean them up in storage too)
-        const expiredTasks = taskRows.filter(isArchivedTaskExpired);
-        expiredTasks.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
-        setTasks(taskRows.filter((t) => !isArchivedTaskExpired(t)));
+        // drop any archived (done) PARENT tasks that already fell outside the 7-day
+        // retention window while the app was closed (and clean them up in storage too);
+        // their children get dropped from state alongside them (DB cascades on delete)
+        const expiredParents = taskRows.filter(isArchivedTaskExpired);
+        const expiredIds = new Set(expiredParents.map((t) => t.id));
+        expiredParents.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
+        setTasks(taskRows.filter((t) => !expiredIds.has(t.id) && !expiredIds.has(t.parentId)));
 
         // drop any confirmed events that already passed their 3-day auto-delete window
         // while the app was closed (and clean them up in storage too)
@@ -2589,10 +3079,11 @@ export default function App() {
     const id = setInterval(() => {
       setTick((n) => n + 1);
       setTasks((prev) => {
-        const expired = prev.filter(isArchivedTaskExpired);
-        if (expired.length === 0) return prev;
-        expired.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
-        return prev.filter((t) => !isArchivedTaskExpired(t));
+        const expiredParents = prev.filter(isArchivedTaskExpired);
+        if (expiredParents.length === 0) return prev;
+        const expiredIds = new Set(expiredParents.map((t) => t.id));
+        expiredParents.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
+        return prev.filter((t) => !expiredIds.has(t.id) && !expiredIds.has(t.parentId));
       });
       setEvents((prev) => {
         const expired = prev.filter(isConfirmedExpired);
@@ -2676,10 +3167,75 @@ export default function App() {
     }
   };
 
+  const toggleExpand = (id) => {
+    setExpandedTasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openAddSubtask = (parentId) => {
+    setAddingSubtaskFor(parentId);
+    setSubtaskInput("");
+    setSubtaskNeedsResult(false);
+    setSubtaskExpectedNote("");
+    setExpandedTasks((prev) => new Set(prev).add(parentId));
+  };
+  const cancelAddSubtask = () => {
+    setAddingSubtaskFor(null);
+    setSubtaskInput("");
+    setSubtaskNeedsResult(false);
+    setSubtaskExpectedNote("");
+  };
+  const confirmAddSubtask = async (parentId) => {
+    const title = subtaskInput.trim();
+    if (!title) return;
+    const draft = {
+      title,
+      status: "todo",
+      createdAt: todayISO(),
+      requiresResult: subtaskNeedsResult,
+      expectedNote: subtaskNeedsResult ? subtaskExpectedNote.trim() : null,
+      parentId,
+    };
+    setSubtaskInput("");
+    setSubtaskNeedsResult(false);
+    setSubtaskExpectedNote("");
+    setAddingSubtaskFor(null);
+    try {
+      const saved = await dbInsertTask(draft);
+      setTasks((prev) => [saved, ...prev]);
+    } catch (err) {
+      alert("Không thêm được việc con: " + err.message);
+    }
+  };
+
   const setStatus = async (id, newStatus) => {
     const current = tasks.find((t) => t.id === id);
     if (!current) return;
+    // việc con đã hoàn thành thì khoá cứng — không cho đổi trạng thái nữa
+    if (current.parentId && current.status === "done") return;
     if (current.status === "doing" && newStatus === "todo") return;
+    if (newStatus === "done") {
+      const children = tasks.filter((t) => t.parentId === id);
+      if (children.some((c) => c.status !== "done")) {
+        alert("Cần hoàn thành tất cả công việc con trước khi hoàn thành công việc này.");
+        return;
+      }
+      if (current.status === "todo") {
+        alert('Cần chuyển sang "Đang thực hiện" trước khi hoàn thành công việc này.');
+        return;
+      }
+    }
+    if (newStatus === "doing" && current.parentId) {
+      const parent = tasks.find((t) => t.id === current.parentId);
+      if (parent && parent.status !== "doing" && parent.status !== "done") {
+        alert('Cần bấm "Đang thực hiện" ở công việc cha trước khi bắt đầu công việc con.');
+        return;
+      }
+    }
     let { startedAt, completedAt, completedAtTs } = current;
     if (newStatus === "doing" && !startedAt) startedAt = new Date().toISOString();
     if (newStatus === "done") {
@@ -2699,7 +3255,27 @@ export default function App() {
   };
 
   const handleStatusClick = (task, newStatus) => {
+    // việc con đã hoàn thành thì khoá cứng — không cho đổi trạng thái nữa
+    if (task.parentId && task.status === "done") return;
     if (newStatus === "todo" && task.status === "doing") return;
+    if (newStatus === "done") {
+      const children = tasks.filter((t) => t.parentId === task.id);
+      if (children.some((c) => c.status !== "done")) {
+        alert("Cần hoàn thành tất cả công việc con trước khi hoàn thành công việc này.");
+        return;
+      }
+      if (task.status === "todo") {
+        alert('Cần chuyển sang "Đang thực hiện" trước khi hoàn thành công việc này.');
+        return;
+      }
+    }
+    if (newStatus === "doing" && task.parentId) {
+      const parent = tasks.find((t) => t.id === task.parentId);
+      if (parent && parent.status !== "doing" && parent.status !== "done") {
+        alert('Cần bấm "Đang thực hiện" ở công việc cha trước khi bắt đầu công việc con.');
+        return;
+      }
+    }
     if (newStatus === "done" && task.requiresResult) {
       setResultDraft({
         text: task.result?.text || "",
@@ -2714,7 +3290,18 @@ export default function App() {
   const confirmCompletionWithResult = async () => {
     if (!resultDraft.text.trim() && resultDraft.files.length === 0) return;
     const id = completingTaskId;
+    const children = tasks.filter((t) => t.parentId === id);
+    if (children.some((c) => c.status !== "done")) {
+      alert("Cần hoàn thành tất cả công việc con trước khi hoàn thành công việc này.");
+      setCompletingTaskId(null);
+      return;
+    }
     const current = tasks.find((t) => t.id === id);
+    if (current && current.status === "todo") {
+      alert('Cần chuyển sang "Đang thực hiện" trước khi hoàn thành công việc này.');
+      setCompletingTaskId(null);
+      return;
+    }
     const startedAt = current?.startedAt || new Date().toISOString();
     const completedAt = todayISO();
     const completedAtTs = Date.now();
@@ -2732,7 +3319,7 @@ export default function App() {
   const restoreTask = (id) => setStatus(id, "doing");
 
   const deleteTask = async (id) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setTasks((prev) => prev.filter((t) => t.id !== id && t.parentId !== id));
     try {
       await dbDeleteTask(id);
     } catch (err) {
@@ -2869,11 +3456,26 @@ export default function App() {
   // count of events today or later, used for the sidebar badge on the calendar tab
   const upcomingEventCount = useMemo(() => events.filter((ev) => ev.eventDate >= todayISO()).length, [events]);
 
+  const childrenByParent = useMemo(() => {
+    const map = {};
+    tasks.forEach((t) => {
+      if (t.parentId) {
+        if (!map[t.parentId]) map[t.parentId] = [];
+        map[t.parentId].push(t);
+      }
+    });
+    Object.values(map).forEach((arr) => arr.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)));
+    return map;
+  }, [tasks]);
+
   const activeTasks = useMemo(
     () => tasks.filter((t) => t.status !== "done").sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     [tasks]
   );
-  const doneTasks = useMemo(() => tasks.filter((t) => t.status === "done"), [tasks]);
+  // chỉ các việc CHA (không có parentId) đang chờ — dùng để render danh sách cấp cao nhất ở tab Công việc
+  const activeTopLevelTasks = useMemo(() => activeTasks.filter((t) => !t.parentId), [activeTasks]);
+  // chỉ tính việc CHA đã hoàn thành cho phần Lưu trữ — con hiển thị lồng bên trong, không tách riêng
+  const doneTasks = useMemo(() => tasks.filter((t) => t.status === "done" && !t.parentId), [tasks]);
 
   const stats = useMemo(() => {
     const total = tasks.length;
@@ -2983,7 +3585,20 @@ export default function App() {
           onToggleNeedsResult={setNewTaskNeedsResult}
           newTaskExpectedNote={newTaskExpectedNote}
           onNewExpectedNoteChange={setNewTaskExpectedNote}
-          activeTasks={activeTasks}
+          activeTasks={activeTopLevelTasks}
+          childrenByParent={childrenByParent}
+          expandedTasks={expandedTasks}
+          onToggleExpand={toggleExpand}
+          addingSubtaskFor={addingSubtaskFor}
+          subtaskInput={subtaskInput}
+          onSubtaskInputChange={setSubtaskInput}
+          subtaskNeedsResult={subtaskNeedsResult}
+          onSubtaskToggleNeedsResult={setSubtaskNeedsResult}
+          subtaskExpectedNote={subtaskExpectedNote}
+          onSubtaskExpectedNoteChange={setSubtaskExpectedNote}
+          onOpenAddSubtask={openAddSubtask}
+          onCancelAddSubtask={cancelAddSubtask}
+          onConfirmAddSubtask={confirmAddSubtask}
           onStatusClick={handleStatusClick}
           onDelete={deleteTask}
           onEdit={openEditTask}
@@ -3002,7 +3617,18 @@ export default function App() {
           onAddCategory={addEventCategory}
         />
       );
-    return <ArchiveContent mobile={mobile} archiveGroups={archiveGroups} onRestore={restoreTask} onDelete={deleteTask} />;
+    return (
+      <ArchiveContent
+        mobile={mobile}
+        archiveGroups={archiveGroups}
+        onRestore={restoreTask}
+        onDelete={deleteTask}
+        childrenByParent={childrenByParent}
+        expandedTasks={expandedTasks}
+        onToggleExpand={toggleExpand}
+        onPreviewImage={setPreviewImage}
+      />
+    );
   };
 
   const completingTask = completingTaskId != null ? tasks.find((t) => t.id === completingTaskId) : null;
@@ -3041,6 +3667,8 @@ export default function App() {
       onAddCategory={addEventCategory}
     />
   ) : null;
+
+  const lightbox = previewImage ? <ImageLightboxModal image={previewImage} onClose={() => setPreviewImage(null)} /> : null;
 
   if (loading) {
     return (
@@ -3132,6 +3760,7 @@ export default function App() {
           <div style={{ flex: 1, overflowY: "auto", padding: "6px 16px 16px" }}>{renderView()}</div>
           {bottomNav}
           {modal}
+          {lightbox}
         </div>
       );
     }
@@ -3158,6 +3787,7 @@ export default function App() {
           {bottomNav}
         </div>
         {modal}
+        {lightbox}
       </div>
     );
   }
@@ -3224,6 +3854,7 @@ export default function App() {
         </main>
       </div>
       {modal}
+      {lightbox}
     </div>
   );
 }
