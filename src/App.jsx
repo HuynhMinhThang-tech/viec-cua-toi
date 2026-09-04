@@ -27,6 +27,16 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  LogOut,
+  Mail,
+  KeyRound,
+  Eye,
+  EyeOff,
+  UserRound,
+  Sun,
+  CloudSun,
+  Moon,
+  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -84,6 +94,32 @@ function isArchivedTaskExpired(task) {
   return daysSince(task.completedAt) >= ARCHIVE_RETENTION_DAYS;
 }
 
+// Trả về Set gồm id của TẤT CẢ hậu duệ (con, cháu, chắt...) của các task gốc trong rootIds,
+// dựa trên toàn bộ danh sách allTasks. Cần thiết vì cây việc con giờ có thể sâu nhiều cấp —
+// xoá/dọn một task cha phải kéo theo toàn bộ nhánh bên dưới nó ở state cục bộ (DB tự cascade rồi,
+// đây chỉ là để state trên client khớp lại ngay, không cần đợi tải lại trang).
+function collectDescendantIds(allTasks, rootIds) {
+  const byParent = {};
+  allTasks.forEach((t) => {
+    if (t.parentId != null) {
+      if (!byParent[t.parentId]) byParent[t.parentId] = [];
+      byParent[t.parentId].push(t.id);
+    }
+  });
+  const result = new Set();
+  const queue = [...rootIds];
+  while (queue.length) {
+    const id = queue.shift();
+    (byParent[id] || []).forEach((childId) => {
+      if (!result.has(childId)) {
+        result.add(childId);
+        queue.push(childId);
+      }
+    });
+  }
+  return result;
+}
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -137,6 +173,31 @@ function nowHM() {
   const d = new Date();
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
+
+/* ---------- auth helpers ---------- */
+// Lời chào theo khung giờ, dùng ở góc trên bên phải sau khi đăng nhập — CÙNG cơ chế với
+// app "Sổ Tài Chính" (getGreetingPeriod / Greeting) để 2 app trông như một bộ sản phẩm.
+function getGreetingPeriod(date = new Date()) {
+  const h = date.getHours();
+  if (h >= 5 && h < 12) return { label: "Good morning", Icon: Sun, color: "#B8792C" };
+  if (h >= 12 && h < 18) return { label: "Good afternoon", Icon: CloudSun, color: "#2F6F5E" };
+  return { label: "Good evening", Icon: Moon, color: "#3E4C6B" };
+}
+// Quy định mật khẩu: tối thiểu 8 ký tự, có ít nhất 1 chữ hoa, 1 số, 1 ký tự đặc biệt.
+const PASSWORD_RULE = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+function passwordIssues(pw) {
+  const issues = [];
+  if (pw.length < 8) issues.push("ít nhất 8 ký tự");
+  if (!/[A-Z]/.test(pw)) issues.push("1 chữ in hoa");
+  if (!/\d/.test(pw)) issues.push("1 chữ số");
+  if (!/[^A-Za-z0-9]/.test(pw)) issues.push("1 ký tự đặc biệt");
+  return issues;
+}
+// Phiên đăng nhập tự hết hạn 24h kể từ lúc đăng nhập (không phải kể từ lần cuối mở app) —
+// mốc này lưu trong localStorage, tách biệt với JWT/refresh-token mà Supabase Auth tự quản lý.
+const LOGIN_AT_KEY = "vieccuatoi_login_at";
+const SESSION_MAX_MS = 24 * 60 * 60 * 1000;
+
 // True when (dateStr, timeStr) already lies in the past relative to right now.
 // A date with no time chosen yet is only considered past once the date itself has passed
 // (so picking today with time still blank isn't flagged prematurely).
@@ -180,6 +241,14 @@ function isRealMobileDevice() {
   const ua = window.navigator?.userAgent || "";
   return /Android|iPhone|iPad|iPod|Mobile|IEMobile/i.test(ua);
 }
+
+// Chỉ true khi đang chạy `npm run dev` (Vite dev server) / môi trường development — dùng để
+// ẩn hẳn nút chuyển đổi xem thử "Web ⇄ App" khỏi bản THẬT đã build/deploy cho người dùng cuối,
+// vì nút đó chỉ có ích lúc code/xem thử giao diện, không nên xuất hiện khi dùng thực tế.
+// Cùng cơ chế với app "Sổ Tài Chính".
+const IS_DEV =
+  (typeof import.meta !== "undefined" && import.meta.env && !!import.meta.env.DEV) ||
+  (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "development");
 
 const STATUS = {
   todo: { label: "Chưa thực hiện", color: C.amber, soft: C.amberSoft, Icon: Circle },
@@ -1681,17 +1750,22 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
 }
 
 /* card 1 task — dùng cho cả việc cha (có thể mở rộng/thêm con) và việc con (rút gọn) */
+// TaskCard hỗ trợ CÂY công việc con lồng nhau ở BẤT KỲ độ sâu nào (con của con của con...),
+// không giới hạn 1 cấp nữa. Mỗi thẻ tự tra childrenByParent[task.id] để lấy con trực tiếp của
+// chính nó rồi tự gọi lại chính nó (đệ quy) để vẽ tiếp các cấp bên dưới. `depth` chỉ dùng để
+// thụt lề / style — 0 = việc gốc (không có cha), >0 = việc con ở cấp bất kỳ.
 function TaskCard({
   task,
   mobile,
-  childTasks = [],
-  isChild = false,
-  expanded = false,
+  depth = 0,
+  parentStatus = null,
+  childrenByParent,
+  expandedTasks,
   onToggleExpand,
   onStatusClick,
   onDelete,
   onEdit,
-  addingSubtask = false,
+  addingSubtaskFor,
   subtaskInput = "",
   onSubtaskInputChange,
   subtaskNeedsResult = false,
@@ -1701,14 +1775,16 @@ function TaskCard({
   onOpenAddSubtask,
   onCancelAddSubtask,
   onConfirmAddSubtask,
-  parentStatus = null,
 }) {
+  const isChild = depth > 0;
+  const childTasks = childrenByParent[task.id] || [];
+  const expanded = expandedTasks.has(task.id);
+  const addingSubtask = addingSubtaskFor === task.id;
   const lockTodo = task.status === "doing";
   const hasChildren = childTasks.length > 0;
   const hasUnfinishedChild = childTasks.some((c) => c.status !== "done");
-  // việc con chỉ được chuyển sang "Đang thực hiện" sau khi việc cha đã được bấm "Đang thực hiện"
-  // (hoặc cha đã "Đã hoàn thành", dù trường hợp này gần như không xảy ra vì cha chỉ hoàn thành
-  // được khi mọi con đã xong)
+  // việc con chỉ được chuyển sang "Đang thực hiện" sau khi việc cha TRỰC TIẾP của nó đã được
+  // bấm "Đang thực hiện" (hoặc cha đã "Đã hoàn thành") — áp dụng cho mọi cấp, không chỉ cấp 1
   const parentNotStarted = isChild && parentStatus !== "doing" && parentStatus !== "done";
 
   return (
@@ -1724,9 +1800,9 @@ function TaskCard({
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, minWidth: 0, flex: 1 }}>
-            {!isChild && hasChildren && (
+            {hasChildren && (
               <button
-                onClick={onToggleExpand}
+                onClick={() => onToggleExpand(task.id)}
                 title={expanded ? "Thu gọn công việc con" : "Mở rộng công việc con"}
                 style={{
                   border: "none",
@@ -1787,15 +1863,13 @@ function TaskCard({
             </div>
           </div>
           <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-            {!isChild && (
-              <button
-                onClick={onOpenAddSubtask}
-                style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
-                title="Thêm công việc con"
-              >
-                <Plus size={15} />
-              </button>
-            )}
+            <button
+              onClick={() => onOpenAddSubtask(task.id)}
+              style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
+              title="Thêm công việc con"
+            >
+              <Plus size={15} />
+            </button>
             <button
               onClick={() => onEdit(task)}
               style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
@@ -1806,7 +1880,7 @@ function TaskCard({
             <button
               onClick={() => onDelete(task.id)}
               style={{ border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", padding: 4 }}
-              title={!isChild && hasChildren ? "Xoá công việc này và toàn bộ việc con" : "Xoá công việc"}
+              title={hasChildren ? "Xoá công việc này và toàn bộ việc con bên trong" : "Xoá công việc"}
             >
               <Trash2 size={15} />
             </button>
@@ -1871,6 +1945,7 @@ function TaskCard({
             marginLeft: mobile ? 14 : 20,
             marginTop: 8,
             padding: mobile ? 12 : 14,
+            marginBottom: 0,
             border: `1px dashed ${C.line}`,
             borderRadius: 10,
             background: "rgba(255,255,255,0.6)",
@@ -1886,7 +1961,7 @@ function TaskCard({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                onConfirmAddSubtask();
+                onConfirmAddSubtask(task.id);
               }
             }}
             placeholder="Nhập công việc..."
@@ -1962,7 +2037,7 @@ function TaskCard({
               Huỷ
             </button>
             <button
-              onClick={onConfirmAddSubtask}
+              onClick={() => onConfirmAddSubtask(task.id)}
               disabled={!subtaskInput.trim()}
               style={{
                 border: "none",
@@ -1982,7 +2057,7 @@ function TaskCard({
         </div>
       )}
 
-      {!isChild && hasChildren && expanded && (
+      {hasChildren && expanded && (
         <div
           style={{
             marginLeft: mobile ? 14 : 20,
@@ -1999,11 +2074,24 @@ function TaskCard({
               key={c.id}
               task={c}
               mobile={mobile}
-              isChild
+              depth={depth + 1}
               parentStatus={task.status}
+              childrenByParent={childrenByParent}
+              expandedTasks={expandedTasks}
+              onToggleExpand={onToggleExpand}
               onStatusClick={onStatusClick}
               onDelete={onDelete}
               onEdit={onEdit}
+              addingSubtaskFor={addingSubtaskFor}
+              subtaskInput={subtaskInput}
+              onSubtaskInputChange={onSubtaskInputChange}
+              subtaskNeedsResult={subtaskNeedsResult}
+              onSubtaskToggleNeedsResult={onSubtaskToggleNeedsResult}
+              subtaskExpectedNote={subtaskExpectedNote}
+              onSubtaskExpectedNoteChange={onSubtaskExpectedNoteChange}
+              onOpenAddSubtask={onOpenAddSubtask}
+              onCancelAddSubtask={onCancelAddSubtask}
+              onConfirmAddSubtask={onConfirmAddSubtask}
             />
           ))}
         </div>
@@ -2143,22 +2231,23 @@ function TasksContent({
               key={t.id}
               task={t}
               mobile={mobile}
-              childTasks={childrenByParent[t.id] || []}
-              expanded={expandedTasks.has(t.id)}
-              onToggleExpand={() => onToggleExpand(t.id)}
+              depth={0}
+              childrenByParent={childrenByParent}
+              expandedTasks={expandedTasks}
+              onToggleExpand={onToggleExpand}
               onStatusClick={onStatusClick}
               onDelete={onDelete}
               onEdit={onEdit}
-              addingSubtask={addingSubtaskFor === t.id}
+              addingSubtaskFor={addingSubtaskFor}
               subtaskInput={subtaskInput}
               onSubtaskInputChange={onSubtaskInputChange}
               subtaskNeedsResult={subtaskNeedsResult}
               onSubtaskToggleNeedsResult={onSubtaskToggleNeedsResult}
               subtaskExpectedNote={subtaskExpectedNote}
               onSubtaskExpectedNoteChange={onSubtaskExpectedNoteChange}
-              onOpenAddSubtask={() => onOpenAddSubtask(t.id)}
+              onOpenAddSubtask={onOpenAddSubtask}
               onCancelAddSubtask={onCancelAddSubtask}
-              onConfirmAddSubtask={() => onConfirmAddSubtask(t.id)}
+              onConfirmAddSubtask={onConfirmAddSubtask}
             />
           ))}
         </div>
@@ -2731,6 +2820,66 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
   );
 }
 
+// Danh sách việc con lồng nhau (bất kỳ độ sâu nào) trong Lưu trữ — mỗi việc con hiển thị
+// kèm "Tạo ngày ..." và, nếu đã hoàn thành, "Hoàn thành ngày ..." để không bị mất thông tin
+// thời gian khi xem lại việc cha đã lưu trữ.
+function ArchiveChildList({ items, childrenByParent, expandedTasks, onToggleExpand }) {
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        marginLeft: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        borderLeft: `2px solid ${C.line}`,
+        paddingLeft: 10,
+      }}
+    >
+      {items.map((c) => {
+        const grandChildren = childrenByParent[c.id] || [];
+        const hasGrandChildren = grandChildren.length > 0;
+        const isExpanded = expandedTasks.has(c.id);
+        return (
+          <div key={c.id} style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: C.inkSoft }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {hasGrandChildren && (
+                <button
+                  onClick={() => onToggleExpand(c.id)}
+                  style={{ border: "none", background: "transparent", color: C.inkSoft, cursor: "pointer", padding: 0, display: "flex" }}
+                  title={isExpanded ? "Thu gọn" : "Mở rộng"}
+                >
+                  <ChevronDown size={12} style={{ transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s ease" }} />
+                </button>
+              )}
+              <span
+                style={{
+                  textDecoration: c.status === "done" ? "line-through" : "none",
+                  textDecorationColor: C.inkFaint,
+                  color: c.status === "done" ? C.inkSoft : C.ink,
+                }}
+              >
+                {c.title}
+              </span>
+              {c.status !== "done" && <StatusPill status={c.status} />}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: C.inkFaint }}>Tạo ngày {formatVN(c.createdAt)}</span>
+              {c.status === "done" && c.completedAt && (
+                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: C.done }}>Hoàn thành ngày {formatVN(c.completedAt)}</span>
+              )}
+            </div>
+            {c.result?.text && <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>{c.result.text}</div>}
+            {hasGrandChildren && isExpanded && (
+              <ArchiveChildList items={grandChildren} childrenByParent={childrenByParent} expandedTasks={expandedTasks} onToggleExpand={onToggleExpand} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenByParent, expandedTasks, onToggleExpand, onPreviewImage }) {
   return (
     <div>
@@ -2931,35 +3080,12 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
                           {(childrenByParent[t.id] || []).length} việc con
                         </button>
                         {expandedTasks.has(t.id) && (
-                          <div
-                            style={{
-                              marginTop: 6,
-                              marginLeft: 12,
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 6,
-                              borderLeft: `2px solid ${C.line}`,
-                              paddingLeft: 10,
-                            }}
-                          >
-                            {(childrenByParent[t.id] || []).map((c) => (
-                              <div key={c.id} style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: C.inkSoft }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <span
-                                    style={{
-                                      textDecoration: c.status === "done" ? "line-through" : "none",
-                                      textDecorationColor: C.inkFaint,
-                                      color: c.status === "done" ? C.inkSoft : C.ink,
-                                    }}
-                                  >
-                                    {c.title}
-                                  </span>
-                                  {c.status !== "done" && <StatusPill status={c.status} />}
-                                </div>
-                                {c.result?.text && <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>{c.result.text}</div>}
-                              </div>
-                            ))}
-                          </div>
+                          <ArchiveChildList
+                            items={childrenByParent[t.id] || []}
+                            childrenByParent={childrenByParent}
+                            expandedTasks={expandedTasks}
+                            onToggleExpand={onToggleExpand}
+                          />
                         )}
                       </div>
                     )}
@@ -2977,6 +3103,8 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
 const GLOBAL_STYLE = `
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
   @keyframes fuse-flicker { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 50% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.7; } }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
   /* ---- PWA trên điện thoại: khi mở từ màn hình chính (standalone), chặn hiệu ứng
      cuộn nẩy (rubber-banding) làm lộ khoảng trắng phía sau, và chặn zoom 2 ngón tay ngoài ý muốn ---- */
   html, body {
@@ -3003,8 +3131,402 @@ const GLOBAL_STYLE = `
   }
 `;
 
+// Hiển thị "Good morning/afternoon/evening, [tên hiển thị]" kèm icon Sun/CloudSun/Moon —
+// tự cập nhật lại mỗi phút, phòng trường hợp người dùng mở app xuyên qua mốc chuyển buổi
+// (VD: đang mở app từ 11h59 sáng sang 12h00 trưa) mà không cần tải lại trang.
+function Greeting({ name, size = 13, style }) {
+  const [period, setPeriod] = useState(() => getGreetingPeriod());
+  useEffect(() => {
+    const id = setInterval(() => setPeriod(getGreetingPeriod()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  const { label, Icon, color } = period;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter, sans-serif", ...style }}>
+      <Icon size={size + 3} style={{ color, flexShrink: 0 }} />
+      <span style={{ fontStyle: "italic" }}>
+        <span style={{ fontWeight: 600, color: C.ink }}>{label}</span>
+        {", "}
+        <span style={{ fontWeight: 700, color: C.ink }}>{name}</span>
+      </span>
+    </span>
+  );
+}
+
+/* ==================== auth: login / register / forgot password ==================== */
+function AuthScreen({ mobile, initialMode = "login" }) {
+  // login | register | forgot | reset — "reset" là màn hình đặt mật khẩu MỚI sau khi bấm
+  // vào link trong email "quên mật khẩu" (Supabase tự đưa app về đúng trạng thái này qua
+  // sự kiện PASSWORD_RECOVERY, xem initialMode được App() truyền xuống).
+  const [mode, setMode] = useState(initialMode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [displayNameInput, setDisplayNameInput] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => { setMode(initialMode); }, [initialMode]);
+
+  const inputStyle = {
+    width: "100%",
+    border: `1.5px solid ${C.line}`,
+    borderRadius: 10,
+    padding: "10px 12px 10px 34px",
+    fontFamily: "Inter, sans-serif",
+    fontSize: 13.5,
+    color: C.ink,
+    outline: "none",
+    boxSizing: "border-box",
+    background: C.card,
+  };
+
+  const resetMessages = () => {
+    setError("");
+    setMessage("");
+  };
+
+  const switchMode = (m) => {
+    setMode(m);
+    resetMessages();
+    setPassword("");
+    setConfirmPassword("");
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    resetMessages();
+    if (!email.trim() || !password) {
+      setError("Vui lòng nhập email và mật khẩu.");
+      return;
+    }
+    setLoading(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setLoading(false);
+    if (err) {
+      setError(err.message === "Invalid login credentials" ? "Email hoặc mật khẩu không đúng." : err.message);
+      return;
+    }
+    localStorage.setItem(LOGIN_AT_KEY, String(Date.now()));
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    resetMessages();
+    if (!displayNameInput.trim()) {
+      setError("Vui lòng nhập tên hiển thị.");
+      return;
+    }
+    if (!email.trim()) {
+      setError("Vui lòng nhập email.");
+      return;
+    }
+    const issues = passwordIssues(password);
+    if (issues.length > 0) {
+      setError("Mật khẩu cần có " + issues.join(", ") + ".");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Mật khẩu nhập lại không khớp.");
+      return;
+    }
+    setLoading(true);
+    const { data, error: err } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { display_name: displayNameInput.trim() } },
+    });
+    setLoading(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    // Nếu dự án Supabase KHÔNG bật "Confirm email", signUp trả về session ngay và
+    // người dùng coi như đã đăng nhập luôn; nếu có bật, cần xác nhận qua email trước.
+    if (data?.session) {
+      localStorage.setItem(LOGIN_AT_KEY, String(Date.now()));
+    } else {
+      setMessage("Đăng ký thành công! Kiểm tra email để xác nhận tài khoản, sau đó đăng nhập.");
+      setMode("login");
+    }
+  };
+
+  const handleForgot = async (e) => {
+    e.preventDefault();
+    resetMessages();
+    if (!email.trim()) {
+      setError("Vui lòng nhập email đã đăng ký.");
+      return;
+    }
+    setLoading(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+    });
+    setLoading(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setMessage("Đã gửi email đặt lại mật khẩu (nếu email này đã đăng ký). Vui lòng kiểm tra hộp thư.");
+  };
+
+  // "Quên mật khẩu" -> tạo mật khẩu MỚI và GHI ĐÈ trực tiếp lên mật khẩu cũ — người dùng
+  // bấm vào link trong email, Supabase tự mở app ở đúng trạng thái "reset", rồi nhập mật
+  // khẩu mới ở đây. Cùng cơ chế với app "Sổ Tài Chính".
+  const handleResetSubmit = async (e) => {
+    e.preventDefault();
+    resetMessages();
+    const issues = passwordIssues(password);
+    if (issues.length > 0) {
+      setError("Mật khẩu cần có " + issues.join(", ") + ".");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Mật khẩu nhập lại không khớp.");
+      return;
+    }
+    setLoading(true);
+    const { error: err } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (err) {
+      setError(err.message || "Không đặt lại được mật khẩu.");
+      return;
+    }
+    setMessage("Đặt lại mật khẩu thành công! Bạn đã được đăng nhập bằng mật khẩu mới.");
+  };
+
+  const submitHandler =
+    mode === "login" ? handleLogin : mode === "register" ? handleRegister : mode === "forgot" ? handleForgot : handleResetSubmit;
+
+  const subtitles = {
+    login: "Đăng nhập để tiếp tục",
+    register: "Tạo tài khoản mới",
+    forgot: "Khôi phục mật khẩu",
+    reset: "Đặt mật khẩu mới",
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Inter, sans-serif" }}>
+      <style>{GLOBAL_STYLE}</style>
+      <div style={{ width: 380, maxWidth: "100%", background: C.card, borderRadius: 16, padding: mobile ? 22 : 24, boxShadow: "0 16px 40px rgba(32,38,31,0.14)" }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
+          <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 4 }}>{subtitles[mode]}</div>
+        </div>
+
+        {error && (
+          <div style={{ background: C.dangerSoft, color: C.danger, borderRadius: 8, padding: "8px 10px", fontSize: 12, marginBottom: 12 }}>{error}</div>
+        )}
+        {message && (
+          <div style={{ background: C.doneSoft, color: C.done, borderRadius: 8, padding: "8px 10px", fontSize: 12, marginBottom: 12 }}>{message}</div>
+        )}
+
+        <form onSubmit={submitHandler} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {mode !== "reset" && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkFaint, display: "block", marginBottom: 4 }}>Email</label>
+              <div style={{ position: "relative" }}>
+                <Mail size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.inkFaint }} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ban@gmail.com"
+                  style={inputStyle}
+                  autoComplete="username"
+                />
+              </div>
+            </div>
+          )}
+
+          {mode === "register" && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkFaint, display: "block", marginBottom: 4 }}>Tên hiển thị</label>
+              <div style={{ position: "relative" }}>
+                <UserRound size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.inkFaint }} />
+                <input
+                  type="text"
+                  value={displayNameInput}
+                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                  placeholder="VD: Thắng Huỳnh"
+                  style={inputStyle}
+                  autoComplete="name"
+                />
+              </div>
+            </div>
+          )}
+
+          {mode !== "forgot" && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkFaint, display: "block", marginBottom: 4 }}>
+                {mode === "reset" ? "Mật khẩu mới" : "Mật khẩu"}
+              </label>
+              <div style={{ position: "relative" }}>
+                <KeyRound size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.inkFaint }} />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  style={{ ...inputStyle, paddingRight: 36 }}
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", color: C.inkFaint, cursor: "pointer", display: "flex" }}
+                  title={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {(mode === "register" || mode === "reset") && (
+                <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 5, lineHeight: 1.5 }}>
+                  Tối thiểu 8 ký tự, gồm ít nhất 1 chữ HOA, 1 chữ số và 1 ký tự đặc biệt.
+                </div>
+              )}
+            </div>
+          )}
+
+          {(mode === "register" || mode === "reset") && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: C.inkFaint, display: "block", marginBottom: 4 }}>Nhập lại mật khẩu</label>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                style={{ ...inputStyle, paddingLeft: 12 }}
+                autoComplete="new-password"
+              />
+            </div>
+          )}
+
+          {mode === "login" && (
+            <div style={{ textAlign: "right" }}>
+              <button
+                type="button"
+                onClick={() => switchMode("forgot")}
+                style={{ border: "none", background: "transparent", color: C.teal, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}
+              >
+                Quên mật khẩu?
+              </button>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: "100%",
+              border: "none",
+              borderRadius: 10,
+              padding: "11px 14px",
+              background: loading ? C.line : C.ink,
+              color: loading ? C.inkFaint : C.paper,
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 700,
+              fontSize: 13.5,
+              cursor: loading ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            {loading && <Loader2 size={14} className="spin" />}
+            {mode === "login" && (loading ? "Đang xử lý..." : "Đăng nhập")}
+            {mode === "register" && (loading ? "Đang xử lý..." : "Đăng ký")}
+            {mode === "forgot" && (loading ? "Đang xử lý..." : "Gửi email đặt lại mật khẩu")}
+            {mode === "reset" && (loading ? "Đang xử lý..." : "Lưu mật khẩu mới")}
+          </button>
+        </form>
+
+        {mode !== "reset" && (
+          <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, fontFamily: "Inter, sans-serif", color: C.inkFaint }}>
+            {mode === "login" && (
+              <>
+                Chưa có tài khoản?{" "}
+                <button onClick={() => switchMode("register")} style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                  Đăng ký
+                </button>
+              </>
+            )}
+            {mode === "register" && (
+              <>
+                Đã có tài khoản?{" "}
+                <button onClick={() => switchMode("login")} style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                  Đăng nhập
+                </button>
+              </>
+            )}
+            {mode === "forgot" && (
+              <button onClick={() => switchMode("login")} style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                ← Quay lại đăng nhập
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ==================== main app: owns all state, renders layout + tabs ==================== */
 export default function App() {
+  // ---------- auth ----------
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false); // đã kiểm tra xong phiên đăng nhập ban đầu chưa
+  // Ép màn hình đăng nhập về đúng chế độ "reset" (đặt mật khẩu mới) khi người dùng bấm vào
+  // link trong email "quên mật khẩu" — cùng cơ chế với app "Sổ Tài Chính".
+  const [authScreenMode, setAuthScreenMode] = useState("login");
+  const user = session?.user || null;
+  const displayName = user?.user_metadata?.display_name || user?.email?.split("@")[0] || "";
+
+  useEffect(() => {
+    // Kiểm tra phiên hiện có (nếu trước đó đã đăng nhập, Supabase tự lưu trong localStorage)
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session || null);
+      setAuthChecked(true);
+    });
+    // Lắng nghe mọi thay đổi đăng nhập/đăng xuất/làm mới token
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
+      setSession(newSession);
+      if (event === "SIGNED_IN" && !localStorage.getItem(LOGIN_AT_KEY)) {
+        localStorage.setItem(LOGIN_AT_KEY, String(Date.now()));
+      }
+      if (event === "SIGNED_OUT") {
+        localStorage.removeItem(LOGIN_AT_KEY);
+      }
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthScreenMode("reset");
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Buộc đăng xuất sau đúng 24h kể từ lúc đăng nhập (không phải 24h kể từ lần mở app gần nhất) —
+  // kiểm tra ngay khi mở app và mỗi phút sau đó.
+  useEffect(() => {
+    const checkExpiry = () => {
+      const loginAt = Number(localStorage.getItem(LOGIN_AT_KEY) || 0);
+      if (loginAt && Date.now() - loginAt >= SESSION_MAX_MS) {
+        localStorage.removeItem(LOGIN_AT_KEY);
+        supabase.auth.signOut();
+      }
+    };
+    checkExpiry();
+    const id = setInterval(checkExpiry, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleSignOut = () => {
+    localStorage.removeItem(LOGIN_AT_KEY);
+    supabase.auth.signOut();
+  };
+
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -3050,17 +3572,28 @@ export default function App() {
     setDevice(v);
   };
 
-  // load tasks + calendar events from Supabase once when the app opens
+  // load tasks + calendar events from Supabase once the user is logged in (RLS lọc theo
+  // user_id = auth.uid() nên chỉ cần đăng nhập là dbFetchTasks/dbFetchEvents tự trả đúng dữ liệu)
   useEffect(() => {
+    if (!session) {
+      // chưa đăng nhập (hoặc vừa đăng xuất): không gọi DB, dọn sạch state cũ
+      setTasks([]);
+      setEvents([]);
+      if (authChecked) setLoading(false);
+      return;
+    }
+    setLoading(true);
     Promise.all([dbFetchTasks(), dbFetchEvents()])
       .then(([taskRows, eventRows]) => {
         // drop any archived (done) PARENT tasks that already fell outside the 7-day
         // retention window while the app was closed (and clean them up in storage too);
         // their children get dropped from state alongside them (DB cascades on delete)
         const expiredParents = taskRows.filter(isArchivedTaskExpired);
-        const expiredIds = new Set(expiredParents.map((t) => t.id));
+        const expiredRootIds = expiredParents.map((t) => t.id);
+        const expiredIds = new Set(expiredRootIds);
+        const expiredDescendantIds = collectDescendantIds(taskRows, expiredRootIds);
         expiredParents.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
-        setTasks(taskRows.filter((t) => !expiredIds.has(t.id) && !expiredIds.has(t.parentId)));
+        setTasks(taskRows.filter((t) => !expiredIds.has(t.id) && !expiredDescendantIds.has(t.id)));
 
         // drop any confirmed events that already passed their 3-day auto-delete window
         // while the app was closed (and clean them up in storage too)
@@ -3070,7 +3603,7 @@ export default function App() {
       })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [session, authChecked]);
 
   // re-render every minute so live "doing" timers stay accurate, and sweep away
   // archived tasks past their 7-day retention window and confirmed calendar
@@ -3081,9 +3614,11 @@ export default function App() {
       setTasks((prev) => {
         const expiredParents = prev.filter(isArchivedTaskExpired);
         if (expiredParents.length === 0) return prev;
-        const expiredIds = new Set(expiredParents.map((t) => t.id));
+        const expiredRootIds = expiredParents.map((t) => t.id);
+        const expiredIds = new Set(expiredRootIds);
+        const expiredDescendantIds = collectDescendantIds(prev, expiredRootIds);
         expiredParents.forEach((t) => dbDeleteTask(t.id).catch(() => {}));
-        return prev.filter((t) => !expiredIds.has(t.id) && !expiredIds.has(t.parentId));
+        return prev.filter((t) => !expiredIds.has(t.id) && !expiredDescendantIds.has(t.id));
       });
       setEvents((prev) => {
         const expired = prev.filter(isConfirmedExpired);
@@ -3319,7 +3854,12 @@ export default function App() {
   const restoreTask = (id) => setStatus(id, "doing");
 
   const deleteTask = async (id) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id && t.parentId !== id));
+    // Xoá cả nhánh: task này + toàn bộ hậu duệ (con, cháu, chắt...) ở mọi cấp.
+    // DB đã tự cascade (ON DELETE CASCADE), đây chỉ để state hiển thị khớp ngay lập tức.
+    setTasks((prev) => {
+      const descendantIds = collectDescendantIds(prev, [id]);
+      return prev.filter((t) => t.id !== id && !descendantIds.has(t.id));
+    });
     try {
       await dbDeleteTask(id);
     } catch (err) {
@@ -3670,6 +4210,21 @@ export default function App() {
 
   const lightbox = previewImage ? <ImageLightboxModal image={previewImage} onClose={() => setPreviewImage(null)} /> : null;
 
+  // Chưa kiểm tra xong phiên đăng nhập ban đầu — tránh nháy màn hình đăng nhập rồi lại vào app
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
+        <style>{GLOBAL_STYLE}</style>
+        <Loader2 size={22} className="spin" style={{ color: C.inkFaint }} />
+      </div>
+    );
+  }
+
+  // Chưa đăng nhập — hiện màn hình đăng nhập/đăng ký/quên mật khẩu, chưa cho vào app
+  if (!session) {
+    return <AuthScreen mobile={mobile} initialMode={authScreenMode} />;
+  }
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
@@ -3705,16 +4260,35 @@ export default function App() {
       <div
         style={{
           padding: realDevice ? "calc(env(safe-area-inset-top, 0px) + 12px) 16px 10px" : "16px 16px 10px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
         }}
       >
-        <div>
-          <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 17, color: C.ink }}>Việc Của Tôi</div>
-          <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 1 }}>{titleFor(view)}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 17, color: C.ink, minWidth: 0 }}>Việc Của Tôi</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={handleSignOut}
+              aria-label="Đăng xuất"
+              title="Đăng xuất"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: `1px solid ${C.line}`,
+                background: C.card,
+                color: C.danger,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <LogOut size={15} />
+            </button>
+            {IS_DEV && <DeviceToggle device={device} onChange={handleDeviceChange} compact />}
+          </div>
         </div>
-        <DeviceToggle device={device} onChange={handleDeviceChange} compact />
+        <Greeting name={displayName} size={11} style={{ fontSize: 12, marginTop: 6 }} />
       </div>
     );
 
@@ -3842,14 +4416,42 @@ export default function App() {
             ))}
           </nav>
 
-          <div>
-            <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6, fontWeight: 600 }}>GIAO DIỆN</div>
-            <DeviceToggle device={device} onChange={handleDeviceChange} />
-          </div>
+          {IS_DEV && (
+            <div>
+              <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6, fontWeight: 600 }}>GIAO DIỆN</div>
+              <DeviceToggle device={device} onChange={handleDeviceChange} />
+            </div>
+          )}
         </aside>
 
         <main style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 24, color: C.ink, margin: "4px 0 18px" }}>{titleFor(view)}</h2>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <h2 style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 24, color: C.ink, margin: "4px 0 18px" }}>{titleFor(view)}</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+              <Greeting name={displayName} size={13} style={{ fontSize: 13 }} />
+              <button
+                onClick={handleSignOut}
+                title="Đăng xuất"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: `1px solid ${C.line}`,
+                  background: C.card,
+                  borderRadius: 8,
+                  padding: "7px 12px",
+                  color: C.danger,
+                  cursor: "pointer",
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                }}
+              >
+                <LogOut size={14} />
+                Đăng xuất
+              </button>
+            </div>
+          </div>
           {renderView()}
         </main>
       </div>
