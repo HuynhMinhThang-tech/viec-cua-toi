@@ -37,6 +37,11 @@ import {
   CloudSun,
   Moon,
   Loader2,
+  Users,
+  ShieldCheck,
+  ShieldOff,
+  MailCheck,
+  BadgeCheck,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -262,6 +267,8 @@ const NAV_ITEMS = [
   { key: "calendar", label: "Lịch", Icon: CalendarDays },
   { key: "archive", label: "Lưu trữ", Icon: Archive },
 ];
+// Tab riêng, chỉ được nối thêm vào NAV_ITEMS khi tài khoản đang đăng nhập là admin (xem navItems trong App()).
+const USERS_NAV_ITEM = { key: "users", label: "Người dùng", Icon: Users };
 
 // Built-in categories. Users can add their own on top of these (see customEventTypes
 // state in the main App component) — "Khác" was removed in favor of that.
@@ -2880,6 +2887,193 @@ function ArchiveChildList({ items, childrenByParent, expandedTasks, onToggleExpa
   );
 }
 
+/* Định dạng "HH:MM ngày/tháng/năm" cho created_at / last_sign_in_at trả về từ admin_list_users */
+function formatDateTimeVN(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())} ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+}
+
+function UserTag({ children, color, soft }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: soft,
+        color,
+        fontSize: 10.5,
+        fontWeight: 600,
+        fontFamily: "Inter, sans-serif",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/* tab "Người dùng" — chỉ hiện với tài khoản admin: xem/ xác nhận email hộ / cấp quyền admin / xoá tài khoản */
+function UsersContent({ mobile, currentUserId, users, loading, error, actingId, onToggleAdmin, onConfirmEmail, onDelete }) {
+  return (
+    <div>
+      <SectionCard
+        title={
+          <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Users size={14} color={C.teal} strokeWidth={2.3} />
+              Danh sách người dùng
+            </span>
+            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: C.inkFaint, fontWeight: 500 }}>
+              {users.length} tài khoản
+            </span>
+          </span>
+        }
+        mobile={mobile}
+      >
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkFaint, fontFamily: "Inter, sans-serif", fontSize: 13, padding: "10px 0" }}>
+            <Loader2 size={14} className="spin" />
+            Đang tải danh sách người dùng...
+          </div>
+        ) : error ? (
+          <div style={{ color: C.danger, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>{error}</div>
+        ) : users.length === 0 ? (
+          <EmptyState text="Chưa có người dùng nào." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {users.map((u) => {
+              const isSelf = u.id === currentUserId;
+              const confirmed = !!u.email_confirmed_at;
+              const acting = actingId === u.id;
+              return (
+                <div
+                  key={u.id}
+                  style={{
+                    border: `1px solid ${C.line}`,
+                    borderRadius: 10,
+                    padding: mobile ? "10px 12px" : "12px 14px",
+                    display: "flex",
+                    flexDirection: mobile ? "column" : "row",
+                    alignItems: mobile ? "stretch" : "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: C.ink, wordBreak: "break-all" }}>
+                        {u.email}
+                      </span>
+                      {isSelf && <UserTag color={C.amber} soft={C.amberSoft}>Bạn</UserTag>}
+                      {u.is_admin && (
+                        <UserTag color={C.teal} soft={C.tealSoft}>
+                          <ShieldCheck size={10} strokeWidth={2.5} />
+                          Admin
+                        </UserTag>
+                      )}
+                      {confirmed ? (
+                        <UserTag color={C.done} soft={C.doneSoft}>
+                          <BadgeCheck size={10} strokeWidth={2.5} />
+                          Đã xác nhận email
+                        </UserTag>
+                      ) : (
+                        <UserTag color={C.danger} soft={C.dangerSoft}>Chưa xác nhận email</UserTag>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint, marginTop: 5 }}>
+                      {u.display_name ? `${u.display_name} · ` : ""}Tạo lúc {formatDateTimeVN(u.created_at)}
+                      {u.last_sign_in_at ? ` · Đăng nhập gần nhất ${formatDateTimeVN(u.last_sign_in_at)}` : ""}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                    {!confirmed && (
+                      <button
+                        onClick={() => onConfirmEmail(u.id)}
+                        disabled={acting}
+                        title="Xác nhận email này hộ người dùng"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          border: `1px solid ${C.line}`,
+                          background: C.card,
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          color: C.teal,
+                          cursor: acting ? "not-allowed" : "pointer",
+                          fontFamily: "Inter, sans-serif",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                        }}
+                      >
+                        <MailCheck size={13} strokeWidth={2.3} />
+                        Xác nhận email
+                      </button>
+                    )}
+                    {!isSelf && (
+                      <button
+                        onClick={() => onToggleAdmin(u.id, !u.is_admin)}
+                        disabled={acting}
+                        title={u.is_admin ? "Thu hồi quyền admin" : "Cấp quyền admin"}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          border: `1px solid ${C.line}`,
+                          background: C.card,
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          color: C.inkSoft,
+                          cursor: acting ? "not-allowed" : "pointer",
+                          fontFamily: "Inter, sans-serif",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {u.is_admin ? <ShieldOff size={13} strokeWidth={2.3} /> : <ShieldCheck size={13} strokeWidth={2.3} />}
+                        {u.is_admin ? "Thu hồi quyền admin" : "Cấp quyền admin"}
+                      </button>
+                    )}
+                    {!isSelf && (
+                      <button
+                        onClick={() => onDelete(u.id)}
+                        disabled={acting}
+                        title="Xoá tài khoản này"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          border: `1px solid ${C.dangerSoft}`,
+                          background: C.card,
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          color: C.danger,
+                          cursor: acting ? "not-allowed" : "pointer",
+                          fontFamily: "Inter, sans-serif",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                        }}
+                      >
+                        <Trash2 size={13} strokeWidth={2.3} />
+                        Xoá
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
 function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenByParent, expandedTasks, onToggleExpand, onPreviewImage }) {
   return (
     <div>
@@ -3485,6 +3679,60 @@ export default function App() {
   const user = session?.user || null;
   const displayName = user?.user_metadata?.display_name || user?.email?.split("@")[0] || "";
 
+  // ---------- profile (is_admin) + tab "Người dùng" ----------
+  const [profile, setProfile] = useState(null); // { id, email, display_name, is_admin }
+  const isAdmin = !!profile?.is_admin;
+  const [userList, setUserList] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState(null);
+  const [actingUserId, setActingUserId] = useState(null); // id đang xử lý (disable nút trong lúc chờ)
+
+  const navItems = useMemo(() => (isAdmin ? [...NAV_ITEMS, USERS_NAV_ITEM] : NAV_ITEMS), [isAdmin]);
+
+  const fetchUsers = async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    const { data, error } = await supabase.rpc("admin_list_users");
+    if (error) setUsersError(error.message);
+    else setUserList(data || []);
+    setUsersLoading(false);
+  };
+
+  const handleToggleAdmin = async (targetId, makeAdmin) => {
+    setActingUserId(targetId);
+    const { error } = await supabase.rpc("admin_set_admin", { target_id: targetId, make_admin: makeAdmin });
+    setActingUserId(null);
+    if (error) {
+      alert("Không cập nhật được quyền admin: " + error.message);
+      return;
+    }
+    setUserList((prev) => prev.map((u) => (u.id === targetId ? { ...u, is_admin: makeAdmin } : u)));
+  };
+
+  const handleConfirmEmail = async (targetId) => {
+    setActingUserId(targetId);
+    const { error } = await supabase.rpc("admin_confirm_email", { target_id: targetId });
+    setActingUserId(null);
+    if (error) {
+      alert("Không xác nhận được email: " + error.message);
+      return;
+    }
+    setUserList((prev) => prev.map((u) => (u.id === targetId ? { ...u, email_confirmed_at: new Date().toISOString() } : u)));
+  };
+
+  const handleDeleteUser = async (targetId) => {
+    const target = userList.find((u) => u.id === targetId);
+    if (!window.confirm(`Xoá vĩnh viễn tài khoản ${target?.email || ""}? Hành động này không thể hoàn tác.`)) return;
+    setActingUserId(targetId);
+    const { error } = await supabase.rpc("admin_delete_user", { target_id: targetId });
+    setActingUserId(null);
+    if (error) {
+      alert("Không xoá được tài khoản: " + error.message);
+      return;
+    }
+    setUserList((prev) => prev.filter((u) => u.id !== targetId));
+  };
+
   useEffect(() => {
     // Kiểm tra phiên hiện có (nếu trước đó đã đăng nhập, Supabase tự lưu trong localStorage)
     supabase.auth.getSession().then(({ data }) => {
@@ -3531,6 +3779,17 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState("dashboard");
+
+  // tải lại danh sách người dùng mỗi khi mở tab "Người dùng" (chỉ admin mới thấy tab này)
+  useEffect(() => {
+    if (view === "users" && isAdmin) fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, isAdmin]);
+
+  // phòng trường hợp quyền admin bị thu hồi trong lúc đang mở tab này — tự chuyển về Tổng quan
+  useEffect(() => {
+    if (view === "users" && !isAdmin) setView("dashboard");
+  }, [view, isAdmin]);
   const [device, setDevice] = useState(detectDevice);
   const [input, setInput] = useState("");
   const [newTaskNeedsResult, setNewTaskNeedsResult] = useState(false);
@@ -3579,9 +3838,38 @@ export default function App() {
       // chưa đăng nhập (hoặc vừa đăng xuất): không gọi DB, dọn sạch state cũ
       setTasks([]);
       setEvents([]);
+      setProfile(null);
+      setUserList([]);
       if (authChecked) setLoading(false);
       return;
     }
+    supabase
+      .from("profiles")
+      .select("id, email, display_name, is_admin")
+      .eq("id", session.user.id)
+      .maybeSingle()
+      .then(async ({ data, error }) => {
+        if (error) {
+          // Log ra Console để dễ chẩn đoán (VD: RLS chặn đọc, bảng profiles thiếu cột,...)
+          console.error("Không lấy được hồ sơ người dùng (profiles):", error.message);
+          setProfile(null);
+          return;
+        }
+        if (data) {
+          setProfile(data);
+          return;
+        }
+        // Chưa có dòng profiles cho tài khoản này (VD: tài khoản được tạo trước khi có
+        // trigger on_auth_user_created) — gọi RPC để tự tạo bù (luôn is_admin = false;
+        // chỉ admin khác mới cấp quyền được, xem admin_set_admin trong schema.sql).
+        const { data: created, error: createErr } = await supabase.rpc("ensure_profile");
+        if (createErr) {
+          console.error("Không tạo được hồ sơ người dùng (profiles):", createErr.message);
+          setProfile(null);
+        } else {
+          setProfile(created);
+        }
+      });
     setLoading(true);
     Promise.all([dbFetchTasks(), dbFetchEvents()])
       .then(([taskRows, eventRows]) => {
@@ -4098,7 +4386,7 @@ export default function App() {
     [events, eventTypes]
   );
 
-  const titleFor = (key) => NAV_ITEMS.find((n) => n.key === key)?.label;
+  const titleFor = (key) => navItems.find((n) => n.key === key)?.label;
 
   const renderView = () => {
     if (view === "dashboard")
@@ -4155,6 +4443,20 @@ export default function App() {
           onEdit={openEditEvent}
           eventTypes={eventTypes}
           onAddCategory={addEventCategory}
+        />
+      );
+    if (view === "users")
+      return (
+        <UsersContent
+          mobile={mobile}
+          currentUserId={user?.id}
+          users={userList}
+          loading={usersLoading}
+          error={usersError}
+          actingId={actingUserId}
+          onToggleAdmin={handleToggleAdmin}
+          onConfirmEmail={handleConfirmEmail}
+          onDelete={handleDeleteUser}
         />
       );
     return (
@@ -4302,7 +4604,7 @@ export default function App() {
           gap: 4,
         }}
       >
-        {NAV_ITEMS.map(({ key, label, Icon }) => (
+        {navItems.map(({ key, label, Icon }) => (
           <button
             key={key}
             onClick={() => setView(key)}
@@ -4377,7 +4679,7 @@ export default function App() {
           </div>
 
           <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {NAV_ITEMS.map(({ key, label, Icon }) => (
+            {navItems.map(({ key, label, Icon }) => (
               <button
                 key={key}
                 onClick={() => setView(key)}
