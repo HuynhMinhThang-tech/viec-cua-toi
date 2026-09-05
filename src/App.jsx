@@ -42,6 +42,7 @@ import {
   ShieldOff,
   MailCheck,
   BadgeCheck,
+  Search,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -2887,11 +2888,12 @@ function ArchiveChildList({ items, childrenByParent, expandedTasks, onToggleExpa
   );
 }
 
-/* Định dạng "HH:MM ngày/tháng/năm" cho created_at / last_sign_in_at trả về từ admin_list_users */
+/* Định dạng "9 Thg 4, 2026 · 15:44" cho created_at / last_sign_in_at trả về từ admin_list_users
+   — cùng kiểu hiển thị với "Sổ Tài Chính" để 2 app trông đồng bộ. */
 function formatDateTimeVN(iso) {
-  if (!iso) return null;
+  if (!iso) return "—";
   const d = new Date(iso);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())} ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  return `${d.getDate()} Thg ${MONTHS[d.getMonth()]}, ${d.getFullYear()} · ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 function UserTag({ children, color, soft }) {
@@ -2916,160 +2918,451 @@ function UserTag({ children, color, soft }) {
   );
 }
 
-/* tab "Người dùng" — chỉ hiện với tài khoản admin: xem/ xác nhận email hộ / cấp quyền admin / xoá tài khoản */
+// Màu vòng tròn avatar suy ra ổn định từ email (giống colorFor tô màu danh mục bên "Sổ Tài Chính"),
+// để mỗi người dùng có 1 màu riêng, dễ phân biệt khi danh sách dài ra.
+const USER_AVATAR_PALETTE = [C.teal, C.amber, C.danger, C.done, "#6B5B95", "#3D7EA6"];
+function userColorFor(str) {
+  let h = 0;
+  for (let i = 0; i < (str || "").length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return USER_AVATAR_PALETTE[Math.abs(h) % USER_AVATAR_PALETTE.length];
+}
+
+function UserAvatar({ email, size = 36 }) {
+  const letter = (email || "?").trim().charAt(0).toUpperCase();
+  const color = userColorFor(email || "");
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 999,
+        background: `${color}22`,
+        color,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        fontFamily: "Inter, sans-serif",
+        fontWeight: 700,
+        fontSize: size * 0.4,
+      }}
+    >
+      {letter}
+    </div>
+  );
+}
+
+// Thẻ số liệu KPI ở đầu tab — cùng khuôn với StatCard đang dùng ở "Tổng quan" nhưng có viền
+// trái màu accent, để đồng bộ với kiểu KPI card bên app "Sổ Tài Chính".
+function UserStatCard({ icon: Icon, label, value, accent, mobile }) {
+  return (
+    <div
+      style={{
+        background: C.card,
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: 8,
+        padding: mobile ? "12px 14px" : "14px 16px",
+        boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
+      }}
+    >
+      <Icon size={15} color={accent} strokeWidth={2.3} style={{ marginBottom: 8, display: "block" }} />
+      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: mobile ? 20 : 24, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11.5, color: C.inkSoft, fontFamily: "Inter, sans-serif", fontWeight: 500, marginTop: 3 }}>{label}</div>
+    </div>
+  );
+}
+
+// Panel xác nhận xoá dùng chung — cùng khuôn với ResultModal/EditTaskModal trong app này
+// (thay cho window.confirm() mặc định của trình duyệt).
+function ConfirmModal({ open, title = "Xác nhận xoá", message, confirmLabel = "Xoá", cancelLabel = "Hủy", onConfirm, onCancel }) {
+  if (!open) return null;
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(32,38,31,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+      onClick={onCancel}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}
+      >
+        <div style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, color: C.ink, marginBottom: 8 }}>{title}</div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: C.inkSoft, lineHeight: 1.55, marginBottom: 18 }}>{message}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            onClick={onCancel}
+            style={{
+              border: `1px solid ${C.line}`,
+              background: "transparent",
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: C.inkSoft,
+              cursor: "pointer",
+            }}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              border: "none",
+              background: C.danger,
+              color: "#fff",
+              borderRadius: 8,
+              padding: "8px 16px",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* tab "Người dùng" — chỉ hiện với tài khoản admin: xem/ xác nhận email hộ / cấp quyền admin / xoá tài khoản.
+   Bố cục KPI card + tìm kiếm + lọc vai trò + phân trang, cùng khuôn với tab "Người dùng" bên app "Sổ Tài Chính". */
 function UsersContent({ mobile, currentUserId, users, loading, error, actingId, onToggleAdmin, onConfirmEmail, onDelete }) {
+  const [roleFilter, setRoleFilter] = useState("all"); // "all" | "user" | "admin"
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [confirmDelete, setConfirmDelete] = useState(null); // { id, email } | null
+  const PAGE_SIZE = 5;
+
+  const confirmedCount = users.filter((u) => !!u.email_confirmed_at).length;
+  const pendingCount = users.length - confirmedCount;
+  const adminCount = users.filter((u) => u.is_admin).length;
+
+  // Chuẩn hoá chuỗi để tìm không phân biệt hoa/thường và không phân biệt dấu tiếng Việt
+  // (VD: gõ "thang" vẫn tìm ra "Thắng") — cùng cách app "Sổ Tài Chính" xử lý ô tìm kiếm.
+  const normalizeSearch = (s) =>
+    (s || "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+  const searchNormalized = normalizeSearch(search.trim());
+
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (roleFilter === "admin" && !u.is_admin) return false;
+      if (roleFilter === "user" && u.is_admin) return false;
+      if (!searchNormalized) return true;
+      return (
+        normalizeSearch(u.email).includes(searchNormalized) ||
+        normalizeSearch(u.display_name || "").includes(searchNormalized)
+      );
+    });
+  }, [users, roleFilter, searchNormalized]);
+
+  useEffect(() => { setPage(1); }, [roleFilter, searchNormalized]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedUsers = filteredUsers.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
+
+  const segmentStyle = (active) => ({
+    border: "none",
+    cursor: "pointer",
+    padding: "5px 12px",
+    borderRadius: 999,
+    background: active ? C.ink : "transparent",
+    color: active ? C.paper : C.inkSoft,
+    fontFamily: "Inter, sans-serif",
+    fontSize: 11.5,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  });
+
+  const performDelete = () => {
+    const target = confirmDelete;
+    setConfirmDelete(null);
+    if (target) onDelete(target.id);
+  };
+
   return (
     <div>
+      {!loading && !error && users.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: mobile ? "1fr 1fr" : "repeat(4, 1fr)",
+            gap: mobile ? 10 : 14,
+            marginBottom: mobile ? 16 : 20,
+          }}
+        >
+          <UserStatCard icon={Users} label="Tổng tài khoản" value={users.length} accent={C.teal} mobile={mobile} />
+          <UserStatCard icon={BadgeCheck} label="Đã xác nhận email" value={confirmedCount} accent={C.done} mobile={mobile} />
+          <UserStatCard icon={Mail} label="Chờ xác nhận" value={pendingCount} accent={pendingCount > 0 ? C.amber : C.inkFaint} mobile={mobile} />
+          <UserStatCard icon={ShieldCheck} label="Quản trị viên" value={adminCount} accent={C.danger} mobile={mobile} />
+        </div>
+      )}
+
       <SectionCard
         title={
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: mobile ? "column" : "row",
+              alignItems: mobile ? "stretch" : "center",
+              justifyContent: "space-between",
+              gap: mobile ? 10 : 12,
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               <Users size={14} color={C.teal} strokeWidth={2.3} />
               Danh sách người dùng
             </span>
-            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: C.inkFaint, fontWeight: 500 }}>
-              {users.length} tài khoản
-            </span>
-          </span>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: mobile ? "column" : "row",
+                alignItems: mobile ? "stretch" : "center",
+                gap: 8,
+              }}
+            >
+              <div style={{ position: "relative", flex: mobile ? "none" : "0 0 220px" }}>
+                <Search size={13} color={C.inkFaint} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Tìm theo tên hoặc email..."
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: `1.5px solid ${C.line}`,
+                    borderRadius: 8,
+                    padding: "7px 10px 7px 28px",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 12.5,
+                    color: C.ink,
+                    outline: "none",
+                    background: C.card,
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  background: "#E4E7DC",
+                  borderRadius: 999,
+                  padding: 3,
+                  gap: 2,
+                  alignSelf: mobile ? "stretch" : "auto",
+                  justifyContent: mobile ? "space-between" : "flex-start",
+                }}
+              >
+                {[
+                  { key: "all", label: "Tất cả" },
+                  { key: "user", label: "User" },
+                  { key: "admin", label: "Admin" },
+                ].map((opt) => (
+                  <button key={opt.key} onClick={() => setRoleFilter(opt.key)} style={{ ...segmentStyle(roleFilter === opt.key), flex: mobile ? 1 : "none" }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         }
         mobile={mobile}
       >
         {loading ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkFaint, fontFamily: "Inter, sans-serif", fontSize: 13, padding: "10px 0" }}>
+
             <Loader2 size={14} className="spin" />
             Đang tải danh sách người dùng...
           </div>
         ) : error ? (
           <div style={{ color: C.danger, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>{error}</div>
-        ) : users.length === 0 ? (
-          <EmptyState text="Chưa có người dùng nào." />
+        ) : filteredUsers.length === 0 ? (
+          <EmptyState text={users.length === 0 ? "Chưa có người dùng nào." : "Không có tài khoản nào khớp bộ lọc."} />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {users.map((u) => {
-              const isSelf = u.id === currentUserId;
-              const confirmed = !!u.email_confirmed_at;
-              const acting = actingId === u.id;
-              return (
-                <div
-                  key={u.id}
-                  style={{
-                    border: `1px solid ${C.line}`,
-                    borderRadius: 10,
-                    padding: mobile ? "10px 12px" : "12px 14px",
-                    display: "flex",
-                    flexDirection: mobile ? "column" : "row",
-                    alignItems: mobile ? "stretch" : "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: C.ink, wordBreak: "break-all" }}>
-                        {u.email}
-                      </span>
-                      {isSelf && <UserTag color={C.amber} soft={C.amberSoft}>Bạn</UserTag>}
-                      {u.is_admin && (
-                        <UserTag color={C.teal} soft={C.tealSoft}>
-                          <ShieldCheck size={10} strokeWidth={2.5} />
-                          Admin
-                        </UserTag>
-                      )}
-                      {confirmed ? (
-                        <UserTag color={C.done} soft={C.doneSoft}>
-                          <BadgeCheck size={10} strokeWidth={2.5} />
-                          Đã xác nhận email
-                        </UserTag>
-                      ) : (
-                        <UserTag color={C.danger} soft={C.dangerSoft}>Chưa xác nhận email</UserTag>
-                      )}
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {pagedUsers.map((u) => {
+                const isSelf = u.id === currentUserId;
+                const confirmed = !!u.email_confirmed_at;
+                const acting = actingId === u.id;
+                return (
+                  <div
+                    key={u.id}
+                    style={{
+                      border: `1px solid ${C.line}`,
+                      borderRadius: 10,
+                      padding: mobile ? "10px 12px" : "12px 14px",
+                      display: "flex",
+                      flexDirection: mobile ? "column" : "row",
+                      alignItems: mobile ? "stretch" : "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0 }}>
+                      <UserAvatar email={u.email} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: C.ink, wordBreak: "break-all" }}>
+                            {u.display_name || u.email}
+                          </span>
+                          {isSelf && <UserTag color={C.amber} soft={C.amberSoft}>Bạn</UserTag>}
+                          {u.is_admin ? (
+                            <UserTag color={C.teal} soft={C.tealSoft}>
+                              <ShieldCheck size={10} strokeWidth={2.5} />
+                              Admin
+                            </UserTag>
+                          ) : (
+                            <UserTag color={C.inkSoft} soft={C.line}>
+                              <UserRound size={10} strokeWidth={2.5} />
+                              User
+                            </UserTag>
+                          )}
+                          {confirmed ? (
+                            <UserTag color={C.done} soft={C.doneSoft}>
+                              <BadgeCheck size={10} strokeWidth={2.5} />
+                              Đã xác nhận email
+                            </UserTag>
+                          ) : (
+                            <UserTag color={C.danger} soft={C.dangerSoft}>Chưa xác nhận email</UserTag>
+                          )}
+                        </div>
+                        {u.display_name && (
+                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkSoft, marginTop: 2, wordBreak: "break-all" }}>
+                            {u.email}
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            marginTop: 10,
+                            paddingLeft: 8,
+                            borderLeft: `2px solid ${C.line}`,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: mobile ? 8 : 10,
+                          }}
+                        >
+                          <div style={mobile ? { fontSize: 11 } : { display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                            <span style={{ color: C.inkFaint, minWidth: mobile ? "auto" : 118, display: "block" }}>
+                              Tham gia
+                            </span>
+                            <span style={{ fontFamily: "IBM Plex Mono, monospace", color: C.ink, display: "block" }}>{formatDateTimeVN(u.created_at)}</span>
+                          </div>
+                          {u.last_sign_in_at && (
+                            <div style={mobile ? { fontSize: 11 } : { display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                              <span style={{ color: C.inkFaint, minWidth: mobile ? "auto" : 118, display: "block" }}>
+                                Đăng nhập gần nhất
+                              </span>
+                              <span style={{ fontFamily: "IBM Plex Mono, monospace", color: C.ink, display: "block" }}>{formatDateTimeVN(u.last_sign_in_at)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint, marginTop: 5 }}>
-                      {u.display_name ? `${u.display_name} · ` : ""}Tạo lúc {formatDateTimeVN(u.created_at)}
-                      {u.last_sign_in_at ? ` · Đăng nhập gần nhất ${formatDateTimeVN(u.last_sign_in_at)}` : ""}
-                    </div>
-                  </div>
 
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                    {!confirmed && (
-                      <button
-                        onClick={() => onConfirmEmail(u.id)}
-                        disabled={acting}
-                        title="Xác nhận email này hộ người dùng"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                          border: `1px solid ${C.line}`,
-                          background: C.card,
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          color: C.teal,
-                          cursor: acting ? "not-allowed" : "pointer",
-                          fontFamily: "Inter, sans-serif",
-                          fontSize: 11.5,
-                          fontWeight: 600,
-                        }}
-                      >
-                        <MailCheck size={13} strokeWidth={2.3} />
-                        Xác nhận email
-                      </button>
-                    )}
-                    {!isSelf && (
-                      <button
-                        onClick={() => onToggleAdmin(u.id, !u.is_admin)}
-                        disabled={acting}
-                        title={u.is_admin ? "Thu hồi quyền admin" : "Cấp quyền admin"}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                          border: `1px solid ${C.line}`,
-                          background: C.card,
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          color: C.inkSoft,
-                          cursor: acting ? "not-allowed" : "pointer",
-                          fontFamily: "Inter, sans-serif",
-                          fontSize: 11.5,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {u.is_admin ? <ShieldOff size={13} strokeWidth={2.3} /> : <ShieldCheck size={13} strokeWidth={2.3} />}
-                        {u.is_admin ? "Thu hồi quyền admin" : "Cấp quyền admin"}
-                      </button>
-                    )}
-                    {!isSelf && (
-                      <button
-                        onClick={() => onDelete(u.id)}
-                        disabled={acting}
-                        title="Xoá tài khoản này"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                          border: `1px solid ${C.dangerSoft}`,
-                          background: C.card,
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                          color: C.danger,
-                          cursor: acting ? "not-allowed" : "pointer",
-                          fontFamily: "Inter, sans-serif",
-                          fontSize: 11.5,
-                          fontWeight: 600,
-                        }}
-                      >
-                        <Trash2 size={13} strokeWidth={2.3} />
-                        Xoá
-                      </button>
-                    )}
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", marginLeft: mobile ? 46 : 0 }}>
+                      {!confirmed && (
+                        <button
+                          onClick={() => onConfirmEmail(u.id)}
+                          disabled={acting}
+                          title="Xác nhận email này hộ người dùng"
+                          style={{
+                            display: "flex", alignItems: "center", gap: 5,
+                            border: `1px solid ${C.line}`, background: C.card, borderRadius: 8, padding: "6px 10px",
+                            color: C.teal, cursor: acting ? "not-allowed" : "pointer",
+                            fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600,
+                          }}
+                        >
+                          {acting ? <Loader2 size={13} className="spin" /> : <MailCheck size={13} strokeWidth={2.3} />}
+                          Xác nhận email
+                        </button>
+                      )}
+                      {!isSelf && (
+                        <button
+                          onClick={() => onToggleAdmin(u.id, !u.is_admin)}
+                          disabled={acting}
+                          title={u.is_admin ? "Thu hồi quyền admin" : "Cấp quyền admin"}
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            width: 30, height: 30, border: `1px solid ${C.line}`, background: C.card, borderRadius: 8,
+                            color: C.inkSoft, cursor: acting ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {u.is_admin ? <ShieldOff size={14} strokeWidth={2.3} /> : <ShieldCheck size={14} strokeWidth={2.3} />}
+                        </button>
+                      )}
+                      {!isSelf && (
+                        <button
+                          onClick={() => setConfirmDelete({ id: u.id, email: u.email })}
+                          disabled={acting}
+                          title="Xoá tài khoản này"
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            width: 30, height: 30, border: `1px solid ${C.dangerSoft}`, background: C.card, borderRadius: 8,
+                            color: C.danger, cursor: acting ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          <Trash2 size={14} strokeWidth={2.3} />
+                        </button>
+                      )}
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+
+            {filteredUsers.length > PAGE_SIZE && (
+              <div
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                  marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}`,
+                  flexDirection: mobile ? "column" : "row",
+                }}
+              >
+                <span style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkFaint }}>
+                  Trang {pageSafe}/{totalPages} · {filteredUsers.length} tài khoản
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    disabled={pageSafe <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    style={{
+                      border: `1px solid ${C.line}`, background: C.card, borderRadius: 8, padding: "6px 12px",
+                      fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600, color: C.ink,
+                      cursor: pageSafe <= 1 ? "not-allowed" : "pointer", opacity: pageSafe <= 1 ? 0.45 : 1,
+                    }}
+                  >
+                    Trước
+                  </button>
+                  <button
+                    disabled={pageSafe >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    style={{
+                      border: `1px solid ${C.line}`, background: C.card, borderRadius: 8, padding: "6px 12px",
+                      fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600, color: C.ink,
+                      cursor: pageSafe >= totalPages ? "not-allowed" : "pointer", opacity: pageSafe >= totalPages ? 0.45 : 1,
+                    }}
+                  >
+                    Sau
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            )}
+          </>
         )}
       </SectionCard>
+
+      <ConfirmModal
+        open={!!confirmDelete}
+        title="Xoá tài khoản"
+        message={`Xoá vĩnh viễn tài khoản "${confirmDelete?.email}"? Toàn bộ công việc và lịch của tài khoản này sẽ bị xoá theo và không thể khôi phục.`}
+        onConfirm={performDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
@@ -4567,6 +4860,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 17, color: C.ink, minWidth: 0 }}>Việc Của Tôi</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {IS_DEV && <DeviceToggle device={device} onChange={handleDeviceChange} compact />}
             <button
               onClick={handleSignOut}
               aria-label="Đăng xuất"
@@ -4587,7 +4881,6 @@ export default function App() {
             >
               <LogOut size={15} />
             </button>
-            {IS_DEV && <DeviceToggle device={device} onChange={handleDeviceChange} compact />}
           </div>
         </div>
         <Greeting name={displayName} size={11} style={{ fontSize: 12, marginTop: 6 }} />
