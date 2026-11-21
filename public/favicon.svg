@@ -1,9 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#2F6F5E"/>
-  <rect x="16" y="17" width="12" height="12" rx="3.4" fill="#EDEFE7"/>
-  <path d="M18.5 23 L21.5 26.5 L25.5 20" fill="none" stroke="#20261F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="32" y="20.5" width="17" height="4.2" rx="2.1" fill="#EDEFE7"/>
-  <rect x="16" y="34" width="12" height="12" rx="3.4" fill="#EDEFE7"/>
-  <path d="M18.5 40 L21.5 43.5 L25.5 37" fill="none" stroke="#20261F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="32" y="37.5" width="17" height="4.2" rx="2.1" fill="#EDEFE7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="112" fill="#181715"/>
+  <rect x="28" y="28" width="456" height="456" rx="92" stroke="#32302B" stroke-width="4"/>
+  
+  <g>
+    <!-- hàng 1: đã xong (cam đất) -->
+    <rect x="124" y="124" width="68" height="68" rx="18" fill="#C96442"/>
+    <path d="M141 158 L154 171 L177 144" fill="none" stroke="#FAF9F5" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="216" y="144" width="172" height="28" rx="14" fill="#FAF9F5"/>
+    <!-- hàng 2: đã xong (kem) -->
+    <rect x="124" y="222" width="68" height="68" rx="18" fill="#FAF9F5"/>
+    <path d="M141 256 L154 269 L177 242" fill="none" stroke="#181715" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="216" y="242" width="172" height="28" rx="14" fill="#FAF9F5"/>
+    <!-- hàng 3: chưa xong (viền xám) -->
+    <rect x="128" y="324" width="60" height="60" rx="15" fill="none" stroke="#6B6963" stroke-width="8"/>
+    <rect x="216" y="340" width="172" height="28" rx="14" fill="#6B6963"/>
+  </g>
 </svg>

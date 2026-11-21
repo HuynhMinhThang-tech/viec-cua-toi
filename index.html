@@ -10,10 +10,11 @@
     />
 
     <!-- Cho phép "Thêm vào Màn hình chính" chạy như app riêng, không thanh địa chỉ -->
-    <meta name="theme-color" content="#2F6F5E" />
+    <meta name="theme-color" content="#FAF9F5" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "default": chữ thanh trạng thái màu tối, đọc được trên nền kem sáng (black-translucent sẽ cho chữ trắng, bị chìm) -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Việc Của Tôi" />
     <meta name="format-detection" content="telephone=no" />
 
@@ -24,6 +25,14 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 
     <title>Việc Của Tôi</title>
+
+    <!-- Phông chữ dùng chung với app Nhật Ký Giao Dịch: Plus Jakarta Sans + JetBrains Mono (đủ tiếng Việt) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
 
     <style>
       html {
@@ -37,7 +46,7 @@
         margin: 0;
         padding: 0;
         min-height: 100%;
-        background: #edefe7;
+        background: #faf9f5;
         /* Bỏ hiệu ứng "bật" viền khi kéo quá đầu/cuối trang trên mobile */
         overscroll-behavior: none;
         -webkit-overflow-scrolling: touch;

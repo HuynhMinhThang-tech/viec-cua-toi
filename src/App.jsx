@@ -59,22 +59,29 @@ import {
 import { supabase } from "./supabaseClient";
 
 /* ---------- design tokens ---------- */
+// Bảng màu & phông chữ dùng chung với app "Nhật Ký Giao Dịch" để các app trông như một bộ sản phẩm
+// (nền kem ấm, chữ nâu đen, viền mảnh, màu nhấn cam đất).
 const C = {
-  paper: "#EDEFE7",
-  card: "#FFFFFF",
-  ink: "#20261F",
-  inkSoft: "#646B5D",
-  inkFaint: "#9BA294",
-  line: "#D9DCCE",
-  teal: "#2F6F5E",
-  tealSoft: "#E1EDE8",
-  amber: "#B8792C",
-  amberSoft: "#F3E7D2",
-  done: "#3E6B45",
-  doneSoft: "#E1EAE0",
-  danger: "#AD3B34",
-  dangerSoft: "#F5E1DF",
+  paper: "#FAF9F5", // nền trang (bg-canvas)
+  card: "#FFFFFF", // nền thẻ (bg-surface)
+  subtle: "#F3F1EC", // nền nhạt: hover, rãnh thanh, nhóm nút chuyển (bg-subtle)
+  ink: "#1C1B18", // chữ chính
+  inkSoft: "#6B6963", // chữ phụ
+  inkFaint: "#9C9990", // chữ mờ / gợi ý / vô hiệu
+  line: "#E7E5E0", // viền mảnh (border-hairline)
+  accent: "#C96442", // màu nhấn cam đất: nút chính, mục đang chọn
+  accentHover: "#B55535",
+  accentSoft: "#F8ECE7",
+  amber: "#B45309",
+  amberSoft: "#FBEFDD",
+  done: "#15803D", // xanh "lãi": đã hoàn thành
+  doneSoft: "#E8F2EC",
+  danger: "#B91C1C", // đỏ "lỗ": xoá / cảnh báo / quá hạn
+  dangerSoft: "#F8E8E8",
 };
+
+const FONT_SANS = "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const FONT_MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
 
 const MONTHS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const DAY_MS = 86400000;
@@ -278,9 +285,9 @@ function nowHM() {
 // app "Sổ Tài Chính" (getGreetingPeriod / Greeting) để 2 app trông như một bộ sản phẩm.
 function getGreetingPeriod(date = new Date()) {
   const h = date.getHours();
-  if (h >= 5 && h < 12) return { label: "Good morning", Icon: Sun, color: "#B8792C" };
-  if (h >= 12 && h < 18) return { label: "Good afternoon", Icon: CloudSun, color: "#2F6F5E" };
-  return { label: "Good evening", Icon: Moon, color: "#3E4C6B" };
+  if (h >= 5 && h < 12) return { label: "Good morning", Icon: Sun, color: C.amber };
+  if (h >= 12 && h < 18) return { label: "Good afternoon", Icon: CloudSun, color: C.accent };
+  return { label: "Good evening", Icon: Moon, color: "#5D6D7E" };
 }
 // Quy định mật khẩu: tối thiểu 8 ký tự, có ít nhất 1 chữ hoa, 1 số, 1 ký tự đặc biệt.
 const PASSWORD_RULE = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
@@ -350,8 +357,8 @@ const IS_DEV =
   (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "development");
 
 const STATUS = {
-  todo: { label: "Chưa thực hiện", color: C.amber, soft: C.amberSoft, Icon: Circle },
-  doing: { label: "Đang thực hiện", color: C.teal, soft: C.tealSoft, Icon: Clock3 },
+  todo: { label: "Chưa thực hiện", color: C.inkSoft, soft: C.subtle, Icon: Circle },
+  doing: { label: "Đang thực hiện", color: C.accent, soft: C.accentSoft, Icon: Clock3 },
   done: { label: "Đã hoàn thành", color: C.done, soft: C.doneSoft, Icon: CheckCircle2 },
 };
 
@@ -367,8 +374,8 @@ const USERS_NAV_ITEM = { key: "users", label: "Người dùng", Icon: Users };
 // Built-in categories. Users can add their own on top of these (see customEventTypes
 // state in the main App component) — "Khác" was removed in favor of that.
 const BASE_EVENT_TYPES = {
-  appointment: { label: "Lịch hẹn", color: C.teal, soft: C.tealSoft },
-  meeting: { label: "Lịch họp", color: C.amber, soft: C.amberSoft },
+  appointment: { label: "Lịch hẹn", color: C.accent, soft: C.accentSoft },
+  meeting: { label: "Lịch họp", color: "#3D7EA6", soft: "#DCEAF2" },
   reminder: { label: "Nhắc nhở", color: C.danger, soft: C.dangerSoft },
   // "Cá nhân" trước đây chỉ nằm trong state của trình duyệt (không lưu DB); giờ là danh mục có sẵn.
   personal: { label: "Cá nhân", color: "#6B5B95", soft: "#EDE8F5" },
@@ -376,12 +383,12 @@ const BASE_EVENT_TYPES = {
 
 // Colors auto-assigned to new custom categories, cycled in order of creation.
 const CUSTOM_TYPE_PALETTE = [
-  { color: "#6B5B95", soft: "#EDE8F5" },
-  { color: "#3D7EA6", soft: "#DCEAF2" },
-  { color: "#A65DA6", soft: "#F2E2F2" },
   { color: "#4C7A57", soft: "#E1EDE4" },
-  { color: "#B4652A", soft: "#F4E3D3" },
+  { color: "#A65DA6", soft: "#F2E2F2" },
+  { color: "#B45309", soft: "#FBEFDD" },
   { color: "#5D6D7E", soft: "#E4E8EC" },
+  { color: "#3D7EA6", soft: "#DCEAF2" },
+  { color: "#6B5B95", soft: "#EDE8F5" },
 ];
 
 // Sentinel option value used by the "Loại lịch" dropdown to trigger the inline
@@ -695,7 +702,7 @@ function StatusPill({ status, size = "sm" }) {
         color: s.color,
         fontSize: font,
         fontWeight: 600,
-        fontFamily: "Inter, sans-serif",
+        fontFamily: FONT_SANS,
         whiteSpace: "nowrap",
       }}
     >
@@ -710,25 +717,27 @@ function StatCard({ label, value, color, mobile, small }) {
     <div
       style={{
         background: C.card,
-        borderLeft: `3px solid ${color}`,
-        borderRadius: 8,
-        padding: mobile ? "12px 14px" : "16px 18px",
-        boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
+        border: `1px solid ${C.line}`,
+        borderRadius: 12,
+        padding: mobile ? "14px 16px" : "18px 20px",
       }}
     >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontSize: mobile ? 11.5 : 12, color: C.inkSoft, fontFamily: FONT_SANS, fontWeight: 500 }}>{label}</span>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: color, flexShrink: 0 }} />
+      </div>
       <div
         style={{
-          fontFamily: "IBM Plex Mono, monospace",
-          fontSize: small ? (mobile ? 16 : 19) : mobile ? 22 : 28,
-          fontWeight: 500,
+          marginTop: 10,
+          fontFamily: FONT_MONO,
+          fontSize: small ? (mobile ? 16 : 19) : mobile ? 22 : 24,
+          fontWeight: 600,
+          letterSpacing: "-0.02em",
           color: C.ink,
           lineHeight: 1.25,
         }}
       >
         {value}
-      </div>
-      <div style={{ marginTop: 6, fontSize: mobile ? 11 : 12, color: C.inkSoft, fontFamily: "Inter, sans-serif", fontWeight: 500 }}>
-        {label}
       </div>
     </div>
   );
@@ -741,10 +750,10 @@ function EmptyState({ text, positive }) {
         textAlign: "center",
         padding: "40px 20px",
         color: positive ? C.done : C.inkFaint,
-        fontFamily: "Inter, sans-serif",
+        fontFamily: FONT_SANS,
         fontSize: 13.5,
         border: `1px dashed ${positive ? C.done : C.line}`,
-        borderRadius: 10,
+        borderRadius: 12,
         background: positive ? C.doneSoft : "rgba(255,255,255,0.4)",
         display: "flex",
         flexDirection: "column",
@@ -760,8 +769,8 @@ function EmptyState({ text, positive }) {
 
 function SectionCard({ title, mobile, children }) {
   return (
-    <div style={{ background: C.card, borderRadius: 10, padding: mobile ? "14px" : "16px 18px", boxShadow: "0 1px 2px rgba(32,38,31,0.06)" }}>
-      <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: mobile ? 12.5 : 13.5, color: C.ink, marginBottom: 10 }}>
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: mobile ? "16px" : "20px" }}>
+      <div style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: mobile ? 13 : 14, color: C.ink, marginBottom: 12 }}>
         {title}
       </div>
       {children}
@@ -773,7 +782,7 @@ function SectionCard({ title, mobile, children }) {
 function TaskTimerStrip({ task }) {
   let text, textColor, Icon;
   let percent = null;
-  let emberColor = C.teal;
+  let emberColor = C.accent;
   let overdue = false;
 
   if (task.status === "todo") {
@@ -785,7 +794,7 @@ function TaskTimerStrip({ task }) {
     const elapsed = Date.now() - new Date(task.startedAt).getTime();
     overdue = elapsed >= DOING_FUSE_MS;
     percent = Math.max(2, Math.min(100, (elapsed / DOING_FUSE_MS) * 100));
-    emberColor = overdue ? C.danger : C.teal;
+    emberColor = overdue ? C.danger : C.accent;
     textColor = emberColor;
     text = `Đang thực hiện được ${formatDuration(elapsed)}${overdue ? " · đã quá 3 ngày" : ""}`;
   } else {
@@ -810,7 +819,7 @@ function TaskTimerStrip({ task }) {
               height: "100%",
               width: `${percent}%`,
               borderRadius: 999,
-              background: `linear-gradient(90deg, rgba(32,38,31,0.3), ${emberColor})`,
+              background: `linear-gradient(90deg, rgba(28,27,24,0.3), ${emberColor})`,
               transition: "width 1.2s linear, background 0.4s linear",
             }}
           />
@@ -835,7 +844,7 @@ function TaskTimerStrip({ task }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
         <Icon size={11} color={textColor} strokeWidth={2.5} />
-        <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: textColor, fontWeight: overdue ? 600 : 400 }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: textColor, fontWeight: overdue ? 600 : 400 }}>
           {text}
         </span>
       </div>
@@ -845,7 +854,7 @@ function TaskTimerStrip({ task }) {
 
 function DeviceToggle({ device, onChange, compact }) {
   return (
-    <div style={{ display: "inline-flex", background: "#E4E7DC", borderRadius: 8, padding: 3, gap: 2 }}>
+    <div style={{ display: "inline-flex", background: C.subtle, borderRadius: 8, padding: 3, gap: 2 }}>
       {[
         { key: "web", Icon: Monitor, label: "Web" },
         { key: "mobile", Icon: Smartphone, label: "App" },
@@ -861,9 +870,10 @@ function DeviceToggle({ device, onChange, compact }) {
             cursor: "pointer",
             padding: compact ? "5px 8px" : "6px 12px",
             borderRadius: 6,
-            background: device === key ? C.ink : "transparent",
-            color: device === key ? C.paper : C.inkSoft,
-            fontFamily: "Inter, sans-serif",
+            background: device === key ? C.card : "transparent",
+            color: device === key ? C.ink : C.inkSoft,
+            boxShadow: device === key ? "0 1px 2px rgba(28,27,24,0.08)" : "none",
+            fontFamily: FONT_SANS,
             fontSize: 12,
             fontWeight: 600,
           }}
@@ -885,7 +895,7 @@ function EditTaskModal({ task, draft, onTitleChange, onCancel, onConfirm }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(32,38,31,0.5)",
+        background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -896,30 +906,30 @@ function EditTaskModal({ task, draft, onTitleChange, onCancel, onConfirm }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}
+        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", border: `1px solid ${C.line}`, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)" }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
           <div
             style={{
               width: 38,
               height: 38,
-              borderRadius: 10,
-              background: C.tealSoft,
+              borderRadius: 8,
+              background: C.accentSoft,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <Pencil size={17} color={C.teal} strokeWidth={2.2} />
+            <Pencil size={17} color={C.accent} strokeWidth={2.2} />
           </div>
           <div>
-            <div style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, color: C.ink }}>Chỉnh sửa công việc</div>
+            <div style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 17, color: C.ink }}>Chỉnh sửa công việc</div>
           </div>
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Tên công việc</label>
+          <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Tên công việc</label>
           <textarea
             value={draft.title}
             onChange={(e) => onTitleChange(e.target.value)}
@@ -928,10 +938,10 @@ function EditTaskModal({ task, draft, onTitleChange, onCancel, onConfirm }) {
             style={{
               width: "100%",
               marginTop: 6,
-              border: `1.5px solid ${C.line}`,
-              borderRadius: 10,
+              border: `1px solid ${C.line}`,
+              borderRadius: 8,
               padding: "10px 12px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 13,
               color: C.ink,
               resize: "vertical",
@@ -951,7 +961,7 @@ function EditTaskModal({ task, draft, onTitleChange, onCancel, onConfirm }) {
               background: "transparent",
               borderRadius: 8,
               padding: "8px 14px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               color: C.inkSoft,
@@ -960,17 +970,17 @@ function EditTaskModal({ task, draft, onTitleChange, onCancel, onConfirm }) {
           >
             Huỷ
           </button>
-          <button
+          <button className={canConfirm ? "btn-primary" : undefined}
             disabled={!canConfirm}
             onClick={onConfirm}
             title={!canConfirm ? "Cần nhập tên công việc" : undefined}
             style={{
               border: "none",
-              background: canConfirm ? C.ink : C.line,
+              background: canConfirm ? C.accent : C.line,
               color: canConfirm ? C.paper : C.inkFaint,
               borderRadius: 8,
               padding: "8px 16px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               cursor: canConfirm ? "pointer" : "not-allowed",
@@ -992,7 +1002,7 @@ function ImageLightboxModal({ image, onClose }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(20,24,18,0.86)",
+        background: "rgba(28,27,24,0.86)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -1008,7 +1018,7 @@ function ImageLightboxModal({ image, onClose }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <span
             style={{
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               color: "#fff",
@@ -1035,7 +1045,7 @@ function ImageLightboxModal({ image, onClose }) {
                 padding: "6px 10px",
                 background: "rgba(255,255,255,0.15)",
                 color: "#fff",
-                fontFamily: "Inter, sans-serif",
+                fontFamily: FONT_SANS,
                 fontSize: 11.5,
                 fontWeight: 600,
                 textDecoration: "none",
@@ -1068,7 +1078,7 @@ function ImageLightboxModal({ image, onClose }) {
           style={{
             maxWidth: "100%",
             maxHeight: "80vh",
-            borderRadius: 10,
+            borderRadius: 12,
             objectFit: "contain",
             boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
             display: "block",
@@ -1090,10 +1100,10 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
   const inputStyle = {
     width: "100%",
     marginTop: 6,
-    border: `1.5px solid ${C.line}`,
-    borderRadius: 10,
+    border: `1px solid ${C.line}`,
+    borderRadius: 8,
     padding: "9px 12px",
-    fontFamily: "Inter, sans-serif",
+    fontFamily: FONT_SANS,
     fontSize: 13,
     color: C.ink,
     outline: "none",
@@ -1113,7 +1123,7 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div>
-        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Tiêu đề</label>
+        <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Tiêu đề</label>
         <textarea
           value={draft.title}
           onChange={(e) => set({ title: e.target.value })}
@@ -1124,7 +1134,7 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
       </div>
 
       <div>
-        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Loại lịch</label>
+        <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Loại lịch</label>
         <select
           value={draft.eventType}
           onChange={(e) => {
@@ -1161,16 +1171,16 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
               placeholder="Tên danh mục mới..."
               style={{ ...inputStyle, marginTop: 0, flex: 1 }}
             />
-            <button
+            <button className={newCategoryName.trim() ? "btn-primary" : undefined}
               onClick={confirmNewCategory}
               disabled={!newCategoryName.trim()}
               style={{
                 border: "none",
                 borderRadius: 8,
                 padding: "0 14px",
-                background: newCategoryName.trim() ? C.ink : C.line,
+                background: newCategoryName.trim() ? C.accent : C.line,
                 color: newCategoryName.trim() ? C.paper : C.inkFaint,
-                fontFamily: "Inter, sans-serif",
+                fontFamily: FONT_SANS,
                 fontSize: 12.5,
                 fontWeight: 600,
                 cursor: newCategoryName.trim() ? "pointer" : "not-allowed",
@@ -1190,7 +1200,7 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
                 padding: "0 12px",
                 background: "transparent",
                 color: C.inkSoft,
-                fontFamily: "Inter, sans-serif",
+                fontFamily: FONT_SANS,
                 fontSize: 12.5,
                 fontWeight: 600,
                 cursor: "pointer",
@@ -1205,7 +1215,7 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
 
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Ngày</label>
+          <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Ngày</label>
           <input
             type="date"
             value={draft.eventDate}
@@ -1225,7 +1235,7 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
           />
         </div>
         <div style={{ flex: 1 }}>
-          <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Giờ</label>
+          <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Giờ</label>
           <input
             type="time"
             value={draft.eventTime}
@@ -1240,13 +1250,13 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
         </div>
       </div>
       {restrictPast && (
-        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, color: C.inkFaint, margin: "-6px 0 0" }}>
+        <p style={{ fontFamily: FONT_SANS, fontSize: 10.5, color: C.inkFaint, margin: "-6px 0 0" }}>
           Không thể đặt lịch cho ngày/giờ đã qua.
         </p>
       )}
 
       <div>
-        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Địa điểm (không bắt buộc)</label>
+        <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Địa điểm (không bắt buộc)</label>
         <input
           type="text"
           value={draft.location}
@@ -1257,7 +1267,7 @@ function EventFormFields({ draft, onChange, idPrefix, eventTypes, onAddCategory,
       </div>
 
       <div>
-        <label style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, color: C.ink }}>Ghi chú (không bắt buộc)</label>
+        <label style={{ fontFamily: FONT_SANS, fontSize: 12, fontWeight: 600, color: C.ink }}>Ghi chú (không bắt buộc)</label>
         <textarea
           value={draft.description}
           onChange={(e) => set({ description: e.target.value })}
@@ -1280,7 +1290,7 @@ function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete,
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(32,38,31,0.5)",
+        background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -1292,25 +1302,25 @@ function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete,
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 24px 60px rgba(0,0,0,0.3)", margin: "24px 0" }}
+        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", border: `1px solid ${C.line}`, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)", margin: "24px 0" }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: isConfirmed ? 10 : 16 }}>
           <div
             style={{
               width: 38,
               height: 38,
-              borderRadius: 10,
-              background: C.tealSoft,
+              borderRadius: 8,
+              background: C.accentSoft,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <CalendarClock size={18} color={C.teal} strokeWidth={2.2} />
+            <CalendarClock size={18} color={C.accent} strokeWidth={2.2} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, color: C.ink }}>Chỉnh sửa lịch</div>
+            <div style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 17, color: C.ink }}>Chỉnh sửa lịch</div>
           </div>
           <button
             onClick={() => onDelete(event.id)}
@@ -1332,7 +1342,7 @@ function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete,
               borderRadius: 8,
               padding: "7px 10px",
               marginBottom: 14,
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 11.5,
               fontWeight: 600,
             }}
@@ -1352,7 +1362,7 @@ function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete,
               background: "transparent",
               borderRadius: 8,
               padding: "8px 14px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               color: C.inkSoft,
@@ -1372,7 +1382,7 @@ function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete,
               background: isConfirmed ? "transparent" : C.doneSoft,
               borderRadius: 8,
               padding: "8px 14px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               color: isConfirmed ? C.inkSoft : C.done,
@@ -1382,17 +1392,17 @@ function EditEventModal({ event, draft, onChange, onCancel, onConfirm, onDelete,
             <CheckCircle2 size={14} strokeWidth={2.5} />
             {isConfirmed ? "Bỏ xác nhận" : "Xác nhận"}
           </button>
-          <button
+          <button className={canConfirm ? "btn-primary" : undefined}
             disabled={!canConfirm}
             onClick={onConfirm}
             title={!canConfirm ? "Cần nhập tiêu đề và ngày" : undefined}
             style={{
               border: "none",
-              background: canConfirm ? C.ink : C.line,
+              background: canConfirm ? C.accent : C.line,
               color: canConfirm ? C.paper : C.inkFaint,
               borderRadius: 8,
               padding: "8px 16px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               cursor: canConfirm ? "pointer" : "not-allowed",
@@ -1413,14 +1423,14 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
     <div>
       <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: mobile ? 10 : 14 }}>
         <StatCard label="Tổng công việc" value={stats.total} color={C.ink} mobile={mobile} />
-        <StatCard label="Chưa thực hiện" value={stats.todo} color={C.amber} mobile={mobile} />
-        <StatCard label="Đang thực hiện" value={stats.doing} color={C.teal} mobile={mobile} />
+        <StatCard label="Chưa thực hiện" value={stats.todo} color={C.inkSoft} mobile={mobile} />
+        <StatCard label="Đang thực hiện" value={stats.doing} color={C.accent} mobile={mobile} />
         <StatCard label="Đã hoàn thành" value={stats.done} color={C.done} mobile={mobile} />
         <StatCard label="Hoàn thành hôm nay" value={stats.doneToday} color={C.done} mobile={mobile} />
         <StatCard label="Tỷ lệ hoàn thành" value={`${stats.rate}%`} color={C.ink} mobile={mobile} />
-        <StatCard label="Thời gian hoàn thành TB" value={stats.avgMs != null ? formatDuration(stats.avgMs) : "—"} color={C.teal} mobile={mobile} small />
+        <StatCard label="Thời gian hoàn thành TB" value={stats.avgMs != null ? formatDuration(stats.avgMs) : "—"} color={C.accent} mobile={mobile} small />
         <StatCard label="Việc tồn đọng > 2 ngày" value={staleTasks.length} color={staleTasks.length ? C.danger : C.done} mobile={mobile} />
-        <StatCard label="Lịch hôm nay" value={eventsToday} color={C.teal} mobile={mobile} />
+        <StatCard label="Lịch hôm nay" value={eventsToday} color={C.accent} mobile={mobile} />
         <StatCard label="Lịch tuần này" value={eventsThisWeek} color={C.amber} mobile={mobile} />
       </div>
 
@@ -1440,7 +1450,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                     </Pie>
                     <Tooltip
                       formatter={(v, n) => [`${v} việc`, n]}
-                      contentStyle={{ fontFamily: "Inter, sans-serif", fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
+                      contentStyle={{ fontFamily: FONT_SANS, fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -1449,8 +1459,8 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                 {statusChartData.map((s) => (
                   <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color }} />
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: C.inkSoft }}>{s.name}</span>
-                    <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, color: C.ink, marginLeft: "auto" }}>{s.value}</span>
+                    <span style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.inkSoft }}>{s.name}</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink, marginLeft: "auto" }}>{s.value}</span>
                   </div>
                 ))}
               </div>
@@ -1473,7 +1483,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                     </Pie>
                     <Tooltip
                       formatter={(v, n) => [`${v} lịch`, n]}
-                      contentStyle={{ fontFamily: "Inter, sans-serif", fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
+                      contentStyle={{ fontFamily: FONT_SANS, fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -1484,7 +1494,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                     <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color, flexShrink: 0 }} />
                     <span
                       style={{
-                        fontFamily: "Inter, sans-serif",
+                        fontFamily: FONT_SANS,
                         fontSize: 12,
                         color: C.inkSoft,
                         overflow: "hidden",
@@ -1494,7 +1504,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                     >
                       {s.name}
                     </span>
-                    <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 12, color: C.ink, marginLeft: "auto", flexShrink: 0 }}>{s.value}</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ink, marginLeft: "auto", flexShrink: 0 }}>{s.value}</span>
                   </div>
                 ))}
               </div>
@@ -1507,12 +1517,12 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
         <SectionCard title="Tạo mới &amp; hoàn thành trong 7 ngày qua" mobile={mobile}>
           <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 999, background: C.amber }} />
-              <span style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkSoft }}>Tạo mới</span>
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: C.inkFaint }} />
+              <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.inkSoft }}>Tạo mới</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: 999, background: C.teal }} />
-              <span style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkSoft }}>Hoàn thành</span>
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: C.accent }} />
+              <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.inkSoft }}>Hoàn thành</span>
             </div>
           </div>
           <div style={{ width: "100%", height: mobile ? 160 : 210 }}>
@@ -1521,26 +1531,26 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                 <CartesianGrid vertical={false} stroke={C.line} />
                 <XAxis
                   dataKey="label"
-                  tick={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, fill: C.inkFaint }}
+                  tick={{ fontFamily: FONT_MONO, fontSize: 10, fill: C.inkFaint }}
                   axisLine={{ stroke: C.line }}
                   tickLine={false}
                 />
                 <YAxis
                   allowDecimals={false}
-                  tick={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, fill: C.inkFaint }}
+                  tick={{ fontFamily: FONT_MONO, fontSize: 10, fill: C.inkFaint }}
                   axisLine={false}
                   tickLine={false}
                   width={24}
                 />
                 <Tooltip
                   formatter={(v, n) => [`${v} việc`, n === "created" ? "Tạo mới" : "Hoàn thành"]}
-                  contentStyle={{ fontFamily: "Inter, sans-serif", fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
+                  contentStyle={{ fontFamily: FONT_SANS, fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}` }}
                 />
-                <Bar dataKey="created" fill={C.amber} radius={[4, 4, 0, 0]} maxBarSize={28}>
-                  <LabelList dataKey="created" position="top" formatter={(v) => (v > 0 ? v : "")} style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, fill: C.amber }} />
+                <Bar dataKey="created" fill={C.inkFaint} radius={[4, 4, 0, 0]} maxBarSize={28}>
+                  <LabelList dataKey="created" position="top" formatter={(v) => (v > 0 ? v : "")} style={{ fontFamily: FONT_MONO, fontSize: 10, fill: C.inkSoft }} />
                 </Bar>
-                <Bar dataKey="completed" fill={C.teal} radius={[4, 4, 0, 0]} maxBarSize={28}>
-                  <LabelList dataKey="completed" position="top" formatter={(v) => (v > 0 ? v : "")} style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, fill: C.teal }} />
+                <Bar dataKey="completed" fill={C.accent} radius={[4, 4, 0, 0]} maxBarSize={28}>
+                  <LabelList dataKey="completed" position="top" formatter={(v) => (v > 0 ? v : "")} style={{ fontFamily: FONT_MONO, fontSize: 10, fill: C.accent }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -1548,7 +1558,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
         </SectionCard>
       </div>
 
-      <h3 style={{ fontFamily: "Fraunces, serif", fontSize: mobile ? 16 : 18, fontWeight: 600, color: C.ink, margin: mobile ? "22px 0 10px" : "28px 0 12px" }}>
+      <h3 style={{ fontFamily: FONT_SANS, fontSize: mobile ? 16 : 18, fontWeight: 600, color: C.ink, margin: mobile ? "22px 0 10px" : "28px 0 12px" }}>
         Công việc tồn đọng
       </h3>
       {staleTasks.length === 0 ? (
@@ -1560,20 +1570,20 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
               key={t.id}
               style={{
                 background: C.card,
+                border: `1px solid ${C.line}`,
                 borderLeft: `3px solid ${C.danger}`,
-                borderRadius: 8,
+                borderRadius: 12,
                 padding: mobile ? "10px 12px" : "12px 16px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 10,
-                boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
               }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div
                   style={{
-                    fontFamily: "Inter, sans-serif",
+                    fontFamily: FONT_SANS,
                     fontSize: mobile ? 13 : 14,
                     color: C.ink,
                     fontWeight: 500,
@@ -1585,7 +1595,7 @@ function DashboardContent({ mobile, stats, staleTasks, statusChartData, trendDat
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4 }}>
                   <AlertTriangle size={11} color={C.danger} strokeWidth={2.5} />
-                  <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.danger }}>{t.reason}</span>
+                  <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: C.danger }}>{t.reason}</span>
                 </div>
               </div>
               <StatusPill status={t.status} />
@@ -1636,14 +1646,14 @@ function AttachmentRow({ att, onPreviewImage, onRemove, removing }) {
             width: 24,
             height: 24,
             borderRadius: 7,
-            background: C.tealSoft,
+            background: C.accentSoft,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
           }}
         >
-          <Icon size={12} color={C.teal} strokeWidth={2.2} />
+          <Icon size={12} color={C.accent} strokeWidth={2.2} />
         </div>
         <a
           href={canOpen ? att.url : undefined}
@@ -1657,7 +1667,7 @@ function AttachmentRow({ att, onPreviewImage, onRemove, removing }) {
         >
           <div
             style={{
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12,
               fontWeight: 500,
               color: canOpen ? C.ink : C.inkFaint,
@@ -1671,7 +1681,7 @@ function AttachmentRow({ att, onPreviewImage, onRemove, removing }) {
           {sub && (
             <div
               style={{
-                fontFamily: "IBM Plex Mono, monospace",
+                fontFamily: FONT_MONO,
                 fontSize: 10,
                 color: C.inkFaint,
                 overflow: "hidden",
@@ -1778,7 +1788,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
     background: "transparent",
     borderRadius: 8,
     padding: "5px 10px",
-    fontFamily: "Inter, sans-serif",
+    fontFamily: FONT_SANS,
     fontSize: 11.5,
     fontWeight: 600,
     color: C.inkSoft,
@@ -1789,7 +1799,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
     border: `1px solid ${C.line}`,
     borderRadius: 8,
     padding: "8px 10px",
-    fontFamily: "Inter, sans-serif",
+    fontFamily: FONT_SANS,
     fontSize: 13,
     color: C.ink,
     outline: "none",
@@ -1809,7 +1819,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
           background: "transparent",
           padding: 0,
           cursor: "pointer",
-          fontFamily: "Inter, sans-serif",
+          fontFamily: FONT_SANS,
           fontSize: 11.5,
           fontWeight: 600,
           color: C.inkSoft,
@@ -1818,7 +1828,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
         <Paperclip size={13} strokeWidth={2.3} />
         Tài liệu đính kèm
         {count > 0 && (
-          <span style={{ background: C.tealSoft, color: C.teal, borderRadius: 999, padding: "1px 7px", fontSize: 10.5 }}>{count}</span>
+          <span style={{ background: C.accentSoft, color: C.accent, borderRadius: 999, padding: "1px 7px", fontSize: 10.5 }}>{count}</span>
         )}
         <ChevronDown size={13} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s ease" }} />
       </button>
@@ -1826,7 +1836,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
       {open && (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
           {count === 0 && (
-            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkFaint, fontStyle: "italic" }}>
+            <div style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.inkFaint, fontStyle: "italic" }}>
               Chưa có tài liệu nào — thêm tệp hoặc dán liên kết (VD: link cuộc trò chuyện, tài liệu đang đọc).
             </div>
           )}
@@ -1854,7 +1864,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
               <input ref={fileRef} type="file" multiple onChange={pickFiles} style={{ display: "none" }} />
 
               {linkOpen && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, border: `1px dashed ${C.line}`, borderRadius: 10, background: "rgba(255,255,255,0.6)" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, border: `1px dashed ${C.line}`, borderRadius: 8, background: "rgba(255,255,255,0.6)" }}>
                   <input
                     autoFocus
                     value={linkUrl}
@@ -1896,13 +1906,13 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
                     >
                       Huỷ
                     </button>
-                    <button
+                    <button className={linkUrl.trim() && !busy ? "btn-primary" : undefined}
                       onClick={saveLink}
                       disabled={busy || !linkUrl.trim()}
                       style={{
                         ...smallBtn,
                         border: "none",
-                        background: linkUrl.trim() && !busy ? C.ink : C.line,
+                        background: linkUrl.trim() && !busy ? C.accent : C.line,
                         color: linkUrl.trim() && !busy ? C.paper : C.inkFaint,
                         cursor: linkUrl.trim() && !busy ? "pointer" : "not-allowed",
                       }}
@@ -1917,7 +1927,7 @@ function AttachmentPanel({ task, editable, onAddFiles, onAddLink, onRemove, onPr
           )}
 
           {error && (
-            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.danger, whiteSpace: "pre-wrap" }}>{error}</div>
+            <div style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.danger, whiteSpace: "pre-wrap" }}>{error}</div>
           )}
         </div>
       )}
@@ -1981,10 +1991,10 @@ function TaskCard({
       <div
         style={{
           background: C.card,
+          border: `1px solid ${C.line}`,
           borderLeft: `3px solid ${STATUS[task.status].color}`,
-          borderRadius: 8,
+          borderRadius: 12,
           padding: mobile ? "12px" : "14px 16px",
-          boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
@@ -2013,7 +2023,7 @@ function TaskCard({
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
-                  fontFamily: "Inter, sans-serif",
+                  fontFamily: FONT_SANS,
                   fontSize: mobile ? 13.5 : 14.5,
                   fontWeight: 500,
                   color: isChild && task.status === "done" ? C.inkSoft : C.ink,
@@ -2026,7 +2036,7 @@ function TaskCard({
                 {task.title}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: C.inkFaint }}>
                   Tạo ngày {formatVN(task.createdAt)}
                 </span>
               </div>
@@ -2095,7 +2105,7 @@ function TaskCard({
                   background: active ? STATUS[s].color : "transparent",
                   color: active ? "#fff" : disabled ? C.inkFaint : C.inkSoft,
                   opacity: disabled && !active ? 0.45 : 1,
-                  fontFamily: "Inter, sans-serif",
+                  fontFamily: FONT_SANS,
                   fontSize: 11,
                   fontWeight: 600,
                 }}
@@ -2126,11 +2136,11 @@ function TaskCard({
             padding: mobile ? 12 : 14,
             marginBottom: 0,
             border: `1px dashed ${C.line}`,
-            borderRadius: 10,
+            borderRadius: 8,
             background: "rgba(255,255,255,0.6)",
           }}
         >
-          <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12, color: C.ink, marginBottom: 8 }}>
+          <div style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 12, color: C.ink, marginBottom: 8 }}>
             Thêm công việc
           </div>
           <textarea
@@ -2150,7 +2160,7 @@ function TaskCard({
               border: `1px solid ${C.line}`,
               borderRadius: 8,
               padding: "8px 10px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 13,
               color: C.ink,
               outline: "none",
@@ -2168,7 +2178,7 @@ function TaskCard({
                 background: "transparent",
                 borderRadius: 8,
                 padding: "7px 12px",
-                fontFamily: "Inter, sans-serif",
+                fontFamily: FONT_SANS,
                 fontSize: 12,
                 fontWeight: 600,
                 color: C.inkSoft,
@@ -2177,16 +2187,16 @@ function TaskCard({
             >
               Huỷ
             </button>
-            <button
+            <button className={subtaskInput.trim() ? "btn-primary" : undefined}
               onClick={() => onConfirmAddSubtask(task.id)}
               disabled={!subtaskInput.trim()}
               style={{
                 border: "none",
-                background: subtaskInput.trim() ? C.ink : C.line,
+                background: subtaskInput.trim() ? C.accent : C.line,
                 color: subtaskInput.trim() ? C.paper : C.inkFaint,
                 borderRadius: 8,
                 padding: "7px 14px",
-                fontFamily: "Inter, sans-serif",
+                fontFamily: FONT_SANS,
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: subtaskInput.trim() ? "pointer" : "not-allowed",
@@ -2284,7 +2294,7 @@ function TasksContent({
               border: `1px solid ${C.line}`,
               borderRadius: 8,
               padding: mobile ? "10px 12px" : "11px 14px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: mobile ? 13 : 14,
               color: C.ink,
               outline: "none",
@@ -2295,7 +2305,7 @@ function TasksContent({
               whiteSpace: "pre-wrap",
             }}
           />
-          <button
+          <button className="btn-primary"
             onClick={onAddTask}
             style={{
               display: "flex",
@@ -2304,9 +2314,9 @@ function TasksContent({
               border: "none",
               borderRadius: 8,
               padding: mobile ? "10px 14px" : "11px 18px",
-              background: C.ink,
-              color: C.paper,
-              fontFamily: "Inter, sans-serif",
+              background: C.accent,
+              color: "#FFFFFF",
+              fontFamily: FONT_SANS,
               fontWeight: 600,
               fontSize: mobile ? 12.5 : 13.5,
               cursor: "pointer",
@@ -2385,7 +2395,7 @@ function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes 
   }, [weekStart, rowH]);
 
   return (
-    <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", background: C.card }}>
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", background: C.card }}>
       <div ref={scrollRef} style={{ maxHeight: mobile ? 440 : 560, overflow: "auto" }}>
         <div
           style={{
@@ -2427,12 +2437,12 @@ function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes 
                   padding: "7px 4px",
                 }}
               >
-                <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10, fontWeight: 600, color: isToday ? C.teal : C.inkFaint }}>
+                <div style={{ fontFamily: FONT_SANS, fontSize: 10, fontWeight: 600, color: isToday ? C.accent : C.inkFaint }}>
                   {WEEKDAY_LABELS_SHORT[d.getDay()]}
                 </div>
                 <div
                   style={{
-                    fontFamily: "IBM Plex Mono, monospace",
+                    fontFamily: FONT_MONO,
                     fontSize: mobile ? 12.5 : 14,
                     fontWeight: 700,
                     color: isToday ? "#fff" : C.ink,
@@ -2443,7 +2453,7 @@ function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes 
                     width: 22,
                     height: 22,
                     borderRadius: 999,
-                    background: isToday ? C.teal : "transparent",
+                    background: isToday ? C.accent : "transparent",
                   }}
                 >
                   {d.getDate()}
@@ -2466,7 +2476,7 @@ function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes 
                   borderTop: `1px solid ${C.line}`,
                   textAlign: "right",
                   padding: "2px 5px",
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: FONT_MONO,
                   fontSize: 9.5,
                   color: C.inkFaint,
                   whiteSpace: "nowrap",
@@ -2485,7 +2495,7 @@ function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes 
                       gridRow: hour + 2,
                       borderTop: `1px solid ${C.line}`,
                       borderLeft: `1px solid ${C.line}`,
-                      background: isToday ? "rgba(47,111,94,0.05)" : "transparent",
+                      background: isToday ? "rgba(201,100,66,0.06)" : "transparent",
                       minHeight: rowH,
                     }}
                   />
@@ -2524,7 +2534,7 @@ function WeekCalendarGrid({ mobile, weekStart, events, onEventClick, eventTypes 
                         background: confirmed ? "transparent" : t.soft,
                         color: t.color,
                         opacity: confirmed ? 0.6 : 1,
-                        fontFamily: "Inter, sans-serif",
+                        fontFamily: FONT_SANS,
                         fontSize: mobile ? 9.5 : 10.5,
                         fontWeight: 600,
                         lineHeight: 1.3,
@@ -2572,27 +2582,27 @@ function DayStrip({ weekDates, selectedDate, onSelect, events }) {
               gap: 3,
               border: "none",
               cursor: "pointer",
-              borderRadius: 10,
+              borderRadius: 8,
               padding: "6px 2px 7px",
-              background: isSel ? C.ink : "transparent",
+              background: isSel ? C.accent : "transparent",
             }}
           >
             <span
               style={{
-                fontFamily: "Inter, sans-serif",
+                fontFamily: FONT_SANS,
                 fontSize: 9.5,
                 fontWeight: 600,
-                color: isSel ? C.paper : isToday ? C.teal : C.inkFaint,
+                color: isSel ? C.paper : isToday ? C.accent : C.inkFaint,
               }}
             >
               {WEEKDAY_LABELS_SHORT[d.getDay()]}
             </span>
             <span
               style={{
-                fontFamily: "IBM Plex Mono, monospace",
+                fontFamily: FONT_MONO,
                 fontSize: 13,
                 fontWeight: 700,
-                color: isSel ? C.paper : isToday ? C.teal : C.ink,
+                color: isSel ? C.paper : isToday ? C.accent : C.ink,
               }}
             >
               {d.getDate()}
@@ -2602,7 +2612,7 @@ function DayStrip({ weekDates, selectedDate, onSelect, events }) {
                 width: 4,
                 height: 4,
                 borderRadius: 999,
-                background: datesWithEvents.has(iso) ? (isSel ? C.paper : C.teal) : "transparent",
+                background: datesWithEvents.has(iso) ? (isSel ? C.paper : C.accent) : "transparent",
               }}
             />
           </button>
@@ -2642,14 +2652,14 @@ function DayTimeline({ selectedDate, events, onEventClick, eventTypes }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontFamily: "Fraunces, serif", fontSize: 14.5, fontWeight: 600, color: C.ink }}>
+        <span style={{ fontFamily: FONT_SANS, fontSize: 14.5, fontWeight: 600, color: C.ink }}>
           {isToday ? "Hôm nay" : WEEKDAY_LABELS_FULL[selectedDate.getDay()]}, {selectedDate.getDate()} Thg {MONTHS[selectedDate.getMonth()]}
         </span>
         {dayEvents.length > 0 && (
-          <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: C.inkFaint }}>{dayEvents.length} lịch</span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint }}>{dayEvents.length} lịch</span>
         )}
       </div>
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", background: C.card }}>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", background: C.card }}>
         {!expanded && !hasEventOutsideRange && (
           <button
             onClick={() => setExpanded(true)}
@@ -2660,7 +2670,7 @@ function DayTimeline({ selectedDate, events, onEventClick, eventTypes }) {
               background: "transparent",
               cursor: "pointer",
               padding: "6px 10px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 10.5,
               fontWeight: 600,
               color: C.inkFaint,
@@ -2680,7 +2690,7 @@ function DayTimeline({ selectedDate, events, onEventClick, eventTypes }) {
                   borderTop: idx === 0 ? "none" : `1px solid ${C.line}`,
                   textAlign: "right",
                   padding: "3px 8px",
-                  fontFamily: "IBM Plex Mono, monospace",
+                  fontFamily: FONT_MONO,
                   fontSize: 10,
                   color: C.inkFaint,
                   boxSizing: "border-box",
@@ -2724,7 +2734,7 @@ function DayTimeline({ selectedDate, events, onEventClick, eventTypes }) {
                     padding: "6px 9px",
                     background: confirmed ? "transparent" : t.soft,
                     opacity: confirmed ? 0.6 : 1,
-                    fontFamily: "Inter, sans-serif",
+                    fontFamily: FONT_SANS,
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: t.color }}>
@@ -2814,12 +2824,12 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
-            border: `1.5px dashed ${C.line}`,
-            borderRadius: 10,
+            border: `1px dashed ${C.line}`,
+            borderRadius: 8,
             padding: "10px 14px",
             background: C.card,
-            color: C.teal,
-            fontFamily: "Inter, sans-serif",
+            color: C.accent,
+            fontFamily: FONT_SANS,
             fontWeight: 600,
             fontSize: 12.5,
             cursor: "pointer",
@@ -2830,9 +2840,9 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
           Thêm lịch mới
         </button>
       ) : (
-        <div style={{ background: C.card, borderRadius: 10, padding: mobile ? 14 : "16px 18px", boxShadow: "0 1px 2px rgba(32,38,31,0.06)", marginBottom: mobile ? 16 : 20 }}>
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: mobile ? 16 : 20, marginBottom: mobile ? 16 : 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: mobile ? 12.5 : 13.5, color: C.ink }}>Thêm lịch mới</div>
+            <div style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: mobile ? 13 : 14, color: C.ink }}>Thêm lịch mới</div>
             {mobile && (
               <button
                 onClick={() => setShowAddForm(false)}
@@ -2844,7 +2854,7 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
             )}
           </div>
           <EventFormFields draft={eventDraft} onChange={onEventDraftChange} idPrefix="new-event" eventTypes={eventTypes} onAddCategory={onAddCategory} restrictPast />
-          <button
+          <button className={canAdd ? "btn-primary" : undefined}
             onClick={handleAdd}
             disabled={!canAdd}
             title={!canAdd ? (missingRequired ? "Cần nhập tiêu đề và ngày" : "Không thể đặt lịch cho thời điểm đã qua") : undefined}
@@ -2855,9 +2865,9 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
               border: "none",
               borderRadius: 8,
               padding: mobile ? "10px 14px" : "10px 16px",
-              background: canAdd ? C.ink : C.line,
+              background: canAdd ? C.accent : C.line,
               color: canAdd ? C.paper : C.inkFaint,
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontWeight: 600,
               fontSize: mobile ? 12.5 : 13.5,
               cursor: canAdd ? "pointer" : "not-allowed",
@@ -2871,7 +2881,7 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: mobile ? 6 : 10, flexWrap: "wrap", gap: 8 }}>
-        <span style={{ fontFamily: "Fraunces, serif", fontSize: mobile ? 13.5 : 16, fontWeight: 600, color: C.ink }}>{rangeLabel}</span>
+        <span style={{ fontFamily: FONT_SANS, fontSize: mobile ? 13.5 : 16, fontWeight: 600, color: C.ink }}>{rangeLabel}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
             onClick={goPrevWeek}
@@ -2889,7 +2899,7 @@ function CalendarContent({ mobile, eventDraft, onEventDraftChange, onAddEvent, e
               padding: "5px 10px",
               cursor: "pointer",
               color: C.inkSoft,
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 11.5,
               fontWeight: 600,
             }}
@@ -2939,7 +2949,7 @@ function ArchiveChildList({ items, childrenByParent, expandedTasks, onToggleExpa
         const hasGrandChildren = grandChildren.length > 0;
         const isExpanded = expandedTasks.has(c.id);
         return (
-          <div key={c.id} style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: C.inkSoft }}>
+          <div key={c.id} style={{ fontFamily: FONT_SANS, fontSize: 12, color: C.inkSoft }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               {hasGrandChildren && (
                 <button
@@ -2962,9 +2972,9 @@ function ArchiveChildList({ items, childrenByParent, expandedTasks, onToggleExpa
               {c.status !== "done" && <StatusPill status={c.status} />}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
-              <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: C.inkFaint }}>Tạo ngày {formatVN(c.createdAt)}</span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.inkFaint }}>Tạo ngày {formatVN(c.createdAt)}</span>
               {c.status === "done" && c.completedAt && (
-                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10, color: C.done }}>Hoàn thành ngày {formatVN(c.completedAt)}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: C.done }}>Hoàn thành ngày {formatVN(c.completedAt)}</span>
               )}
             </div>
             {(c.attachments || []).length > 0 && (
@@ -3003,7 +3013,7 @@ function UserTag({ children, color, soft }) {
         color,
         fontSize: 10.5,
         fontWeight: 600,
-        fontFamily: "Inter, sans-serif",
+        fontFamily: FONT_SANS,
         whiteSpace: "nowrap",
       }}
     >
@@ -3014,7 +3024,7 @@ function UserTag({ children, color, soft }) {
 
 // Màu vòng tròn avatar suy ra ổn định từ email (giống colorFor tô màu danh mục bên "Sổ Tài Chính"),
 // để mỗi người dùng có 1 màu riêng, dễ phân biệt khi danh sách dài ra.
-const USER_AVATAR_PALETTE = [C.teal, C.amber, C.danger, C.done, "#6B5B95", "#3D7EA6"];
+const USER_AVATAR_PALETTE = [C.accent, C.amber, "#3D7EA6", C.done, "#6B5B95", "#5D6D7E"];
 function userColorFor(str) {
   let h = 0;
   for (let i = 0; i < (str || "").length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
@@ -3036,7 +3046,7 @@ function UserAvatar({ email, size = 36 }) {
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
-        fontFamily: "Inter, sans-serif",
+        fontFamily: FONT_SANS,
         fontWeight: 700,
         fontSize: size * 0.4,
       }}
@@ -3046,24 +3056,24 @@ function UserAvatar({ email, size = 36 }) {
   );
 }
 
-// Thẻ số liệu KPI ở đầu tab — cùng khuôn với StatCard đang dùng ở "Tổng quan" nhưng có viền
-// trái màu accent, để đồng bộ với kiểu KPI card bên app "Sổ Tài Chính".
+// Thẻ số liệu KPI ở đầu tab — cùng khuôn với StatCard ở "Tổng quan" (nhãn + icon phía trên, số lớn bên dưới).
 function UserStatCard({ icon: Icon, label, value, accent, mobile }) {
   return (
     <div
       style={{
         background: C.card,
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: 8,
-        padding: mobile ? "12px 14px" : "14px 16px",
-        boxShadow: "0 1px 2px rgba(32,38,31,0.06)",
+        border: `1px solid ${C.line}`,
+        borderRadius: 12,
+        padding: mobile ? "14px 16px" : "18px 20px",
       }}
     >
-      <Icon size={15} color={accent} strokeWidth={2.3} style={{ marginBottom: 8, display: "block" }} />
-      <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: mobile ? 20 : 24, fontWeight: 500, color: C.ink, lineHeight: 1.2 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontSize: mobile ? 11.5 : 12, color: C.inkSoft, fontFamily: FONT_SANS, fontWeight: 500 }}>{label}</span>
+        <Icon size={16} color={accent} strokeWidth={2} style={{ flexShrink: 0 }} />
+      </div>
+      <div style={{ marginTop: 10, fontFamily: FONT_MONO, fontSize: mobile ? 22 : 24, fontWeight: 600, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.25 }}>
         {value}
       </div>
-      <div style={{ fontSize: 11.5, color: C.inkSoft, fontFamily: "Inter, sans-serif", fontWeight: 500, marginTop: 3 }}>{label}</div>
     </div>
   );
 }
@@ -3074,15 +3084,15 @@ function ConfirmModal({ open, title = "Xác nhận xoá", message, confirmLabel 
   if (!open) return null;
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "rgba(32,38,31,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
       onClick={onCancel}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}
+        style={{ background: C.card, borderRadius: 16, padding: 22, width: 400, maxWidth: "100%", border: `1px solid ${C.line}`, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)" }}
       >
-        <div style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, color: C.ink, marginBottom: 8 }}>{title}</div>
-        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: C.inkSoft, lineHeight: 1.55, marginBottom: 18 }}>{message}</div>
+        <div style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 17, color: C.ink, marginBottom: 8 }}>{title}</div>
+        <div style={{ fontFamily: FONT_SANS, fontSize: 13, color: C.inkSoft, lineHeight: 1.55, marginBottom: 18 }}>{message}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button
             onClick={onCancel}
@@ -3091,7 +3101,7 @@ function ConfirmModal({ open, title = "Xác nhận xoá", message, confirmLabel 
               background: "transparent",
               borderRadius: 8,
               padding: "8px 14px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               color: C.inkSoft,
@@ -3108,7 +3118,7 @@ function ConfirmModal({ open, title = "Xác nhận xoá", message, confirmLabel 
               color: "#fff",
               borderRadius: 8,
               padding: "8px 16px",
-              fontFamily: "Inter, sans-serif",
+              fontFamily: FONT_SANS,
               fontSize: 12.5,
               fontWeight: 600,
               cursor: "pointer",
@@ -3163,10 +3173,11 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
     border: "none",
     cursor: "pointer",
     padding: "5px 12px",
-    borderRadius: 999,
-    background: active ? C.ink : "transparent",
-    color: active ? C.paper : C.inkSoft,
-    fontFamily: "Inter, sans-serif",
+    borderRadius: 6,
+    background: active ? C.card : "transparent",
+    color: active ? C.ink : C.inkSoft,
+    boxShadow: active ? "0 1px 2px rgba(28,27,24,0.08)" : "none",
+    fontFamily: FONT_SANS,
     fontSize: 11.5,
     fontWeight: 600,
     whiteSpace: "nowrap",
@@ -3189,7 +3200,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
             marginBottom: mobile ? 16 : 20,
           }}
         >
-          <UserStatCard icon={Users} label="Tổng tài khoản" value={users.length} accent={C.teal} mobile={mobile} />
+          <UserStatCard icon={Users} label="Tổng tài khoản" value={users.length} accent={C.accent} mobile={mobile} />
           <UserStatCard icon={BadgeCheck} label="Đã xác nhận email" value={confirmedCount} accent={C.done} mobile={mobile} />
           <UserStatCard icon={Mail} label="Chờ xác nhận" value={pendingCount} accent={pendingCount > 0 ? C.amber : C.inkFaint} mobile={mobile} />
           <UserStatCard icon={ShieldCheck} label="Quản trị viên" value={adminCount} accent={C.danger} mobile={mobile} />
@@ -3208,7 +3219,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
             }}
           >
             <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              <Users size={14} color={C.teal} strokeWidth={2.3} />
+              <Users size={14} color={C.accent} strokeWidth={2.3} />
               Danh sách người dùng
             </span>
             <div
@@ -3229,10 +3240,10 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                   style={{
                     width: "100%",
                     boxSizing: "border-box",
-                    border: `1.5px solid ${C.line}`,
+                    border: `1px solid ${C.line}`,
                     borderRadius: 8,
                     padding: "7px 10px 7px 28px",
-                    fontFamily: "Inter, sans-serif",
+                    fontFamily: FONT_SANS,
                     fontSize: 12.5,
                     color: C.ink,
                     outline: "none",
@@ -3243,9 +3254,9 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
               <div
                 style={{
                   display: "inline-flex",
-                  background: "#E4E7DC",
-                  borderRadius: 999,
-                  padding: 3,
+                  background: C.subtle,
+                  borderRadius: 8,
+                  padding: 4,
                   gap: 2,
                   alignSelf: mobile ? "stretch" : "auto",
                   justifyContent: mobile ? "space-between" : "flex-start",
@@ -3267,13 +3278,13 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
         mobile={mobile}
       >
         {loading ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkFaint, fontFamily: "Inter, sans-serif", fontSize: 13, padding: "10px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.inkFaint, fontFamily: FONT_SANS, fontSize: 13, padding: "10px 0" }}>
 
             <Loader2 size={14} className="spin" />
             Đang tải danh sách người dùng...
           </div>
         ) : error ? (
-          <div style={{ color: C.danger, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>{error}</div>
+          <div style={{ color: C.danger, fontFamily: FONT_SANS, fontSize: 12.5 }}>{error}</div>
         ) : filteredUsers.length === 0 ? (
           <EmptyState text={users.length === 0 ? "Chưa có người dùng nào." : "Không có tài khoản nào khớp bộ lọc."} />
         ) : (
@@ -3288,7 +3299,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                     key={u.id}
                     style={{
                       border: `1px solid ${C.line}`,
-                      borderRadius: 10,
+                      borderRadius: 12,
                       padding: mobile ? "10px 12px" : "12px 14px",
                       display: "flex",
                       flexDirection: mobile ? "column" : "row",
@@ -3301,12 +3312,12 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                       <UserAvatar email={u.email} />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: C.ink, wordBreak: "break-all" }}>
+                          <span style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 13.5, color: C.ink, wordBreak: "break-all" }}>
                             {u.display_name || u.email}
                           </span>
                           {isSelf && <UserTag color={C.amber} soft={C.amberSoft}>Bạn</UserTag>}
                           {u.is_admin ? (
-                            <UserTag color={C.teal} soft={C.tealSoft}>
+                            <UserTag color={C.accent} soft={C.accentSoft}>
                               <ShieldCheck size={10} strokeWidth={2.5} />
                               Admin
                             </UserTag>
@@ -3326,7 +3337,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                           )}
                         </div>
                         {u.display_name && (
-                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkSoft, marginTop: 2, wordBreak: "break-all" }}>
+                          <div style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.inkSoft, marginTop: 2, wordBreak: "break-all" }}>
                             {u.email}
                           </div>
                         )}
@@ -3344,14 +3355,14 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                             <span style={{ color: C.inkFaint, minWidth: mobile ? "auto" : 118, display: "block" }}>
                               Tham gia
                             </span>
-                            <span style={{ fontFamily: "IBM Plex Mono, monospace", color: C.ink, display: "block" }}>{formatDateTimeVN(u.created_at)}</span>
+                            <span style={{ fontFamily: FONT_MONO, color: C.ink, display: "block" }}>{formatDateTimeVN(u.created_at)}</span>
                           </div>
                           {u.last_sign_in_at && (
                             <div style={mobile ? { fontSize: 11 } : { display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
                               <span style={{ color: C.inkFaint, minWidth: mobile ? "auto" : 118, display: "block" }}>
                                 Đăng nhập gần nhất
                               </span>
-                              <span style={{ fontFamily: "IBM Plex Mono, monospace", color: C.ink, display: "block" }}>{formatDateTimeVN(u.last_sign_in_at)}</span>
+                              <span style={{ fontFamily: FONT_MONO, color: C.ink, display: "block" }}>{formatDateTimeVN(u.last_sign_in_at)}</span>
                             </div>
                           )}
                         </div>
@@ -3367,8 +3378,8 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                           style={{
                             display: "flex", alignItems: "center", gap: 5,
                             border: `1px solid ${C.line}`, background: C.card, borderRadius: 8, padding: "6px 10px",
-                            color: C.teal, cursor: acting ? "not-allowed" : "pointer",
-                            fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600,
+                            color: C.accent, cursor: acting ? "not-allowed" : "pointer",
+                            fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: 600,
                           }}
                         >
                           {acting ? <Loader2 size={13} className="spin" /> : <MailCheck size={13} strokeWidth={2.3} />}
@@ -3417,7 +3428,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                   flexDirection: mobile ? "column" : "row",
                 }}
               >
-                <span style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.inkFaint }}>
+                <span style={{ fontFamily: FONT_SANS, fontSize: 11.5, color: C.inkFaint }}>
                   Trang {pageSafe}/{totalPages} · {filteredUsers.length} tài khoản
                 </span>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -3426,7 +3437,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     style={{
                       border: `1px solid ${C.line}`, background: C.card, borderRadius: 8, padding: "6px 12px",
-                      fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600, color: C.ink,
+                      fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: 600, color: C.ink,
                       cursor: pageSafe <= 1 ? "not-allowed" : "pointer", opacity: pageSafe <= 1 ? 0.45 : 1,
                     }}
                   >
@@ -3437,7 +3448,7 @@ function UsersContent({ mobile, currentUserId, users, loading, error, actingId, 
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     style={{
                       border: `1px solid ${C.line}`, background: C.card, borderRadius: 8, padding: "6px 12px",
-                      fontFamily: "Inter, sans-serif", fontSize: 11.5, fontWeight: 600, color: C.ink,
+                      fontFamily: FONT_SANS, fontSize: 11.5, fontWeight: 600, color: C.ink,
                       cursor: pageSafe >= totalPages ? "not-allowed" : "pointer", opacity: pageSafe >= totalPages ? 0.45 : 1,
                     }}
                   >
@@ -3469,12 +3480,12 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
           display: "flex",
           alignItems: "center",
           gap: 6,
-          background: C.tealSoft,
-          color: C.teal,
+          background: C.accentSoft,
+          color: C.accent,
           borderRadius: 8,
           padding: "7px 10px",
           marginBottom: 16,
-          fontFamily: "Inter, sans-serif",
+          fontFamily: FONT_SANS,
           fontSize: 11.5,
           fontWeight: 600,
         }}
@@ -3490,17 +3501,17 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
           {archiveGroups.map(([date, items]) => (
             <div key={date}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, borderBottom: `1px solid ${C.line}`, paddingBottom: 6 }}>
-                <span style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: mobile ? 14 : 15.5, color: C.ink }}>{formatVN(date)}</span>
-                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 11, color: C.inkFaint }}>{items.length} việc</span>
+                <span style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: mobile ? 14 : 15.5, color: C.ink }}>{formatVN(date)}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.inkFaint }}>{items.length} việc</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {items.map((t) => (
-                  <div key={t.id} style={{ background: C.card, borderRadius: 8, padding: mobile ? "10px 12px" : "11px 14px", boxShadow: "0 1px 2px rgba(32,38,31,0.06)" }}>
+                  <div key={t.id} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: mobile ? "10px 12px" : "11px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div
                           style={{
-                            fontFamily: "Inter, sans-serif",
+                            fontFamily: FONT_SANS,
                             fontSize: mobile ? 13 : 14,
                             color: C.ink,
                             fontWeight: 500,
@@ -3512,7 +3523,7 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
                         >
                           {t.title}
                         </div>
-                        <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint, marginTop: 3 }}>Tạo {formatVN(t.createdAt)}</div>
+                        <div style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: C.inkFaint, marginTop: 3 }}>Tạo {formatVN(t.createdAt)}</div>
                       </div>
                       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                         <button
@@ -3539,7 +3550,7 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
                             display: "flex",
                             alignItems: "center",
                             gap: 5,
-                            fontFamily: "Inter, sans-serif",
+                            fontFamily: FONT_SANS,
                             fontSize: 11,
                             fontWeight: 600,
                             color: C.done,
@@ -3565,7 +3576,7 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
                             color: C.inkSoft,
                             cursor: "pointer",
                             padding: 0,
-                            fontFamily: "Inter, sans-serif",
+                            fontFamily: FONT_SANS,
                             fontSize: 11,
                             fontWeight: 600,
                           }}
@@ -3602,7 +3613,6 @@ function ArchiveContent({ mobile, archiveGroups, onRestore, onDelete, childrenBy
 }
 
 const GLOBAL_STYLE = `
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
   @keyframes fuse-flicker { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 50% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.7; } }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   .spin { animation: spin 1s linear infinite; }
@@ -3611,10 +3621,27 @@ const GLOBAL_STYLE = `
   html, body {
     height: 100%;
     margin: 0;
-    background: ${C.card};
+    background: ${C.paper};
+    color: ${C.ink};
+    font-family: ${FONT_SANS};
     overscroll-behavior: none;
     touch-action: pan-x pan-y;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
   }
+  button, input, select, textarea { font-family: inherit; }
+  ::selection { background: rgba(201, 100, 66, 0.2); }
+  /* hiệu ứng nhẹ khi chuyển tab (giống app Nhật Ký Giao Dịch) */
+  @keyframes tab-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .animate-tab-in { animation: tab-in 180ms ease-out; }
+  @media (prefers-reduced-motion: reduce) { .animate-tab-in { animation: none; } }
+  /* mục điều hướng: nền nhạt khi rê chuột */
+  .nav-item:not(.is-active):hover { background: ${C.subtle} !important; color: ${C.ink} !important; }
+  .icon-btn:hover, .ghost-btn:hover { background: ${C.subtle} !important; }
+  .btn-primary:hover { background: ${C.accentHover} !important; }
+  /* chiều cao khung nhìn: 100vh cho trình duyệt cũ, 100dvh (trừ thanh địa chỉ động) cho trình duyệt mới */
+  .app-shell { height: 100vh; height: 100dvh; }
 `;
 
 // Hiển thị "Good morning/afternoon/evening, [tên hiển thị]" kèm icon Sun/CloudSun/Moon —
@@ -3628,12 +3655,12 @@ function Greeting({ name, size = 13, style }) {
   }, []);
   const { label, Icon, color } = period;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter, sans-serif", ...style }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: FONT_SANS, ...style }}>
       <Icon size={size + 3} style={{ color, flexShrink: 0 }} />
-      <span style={{ fontStyle: "italic" }}>
-        <span style={{ fontWeight: 600, color: C.ink }}>{label}</span>
+      <span>
+        <span style={{ fontWeight: 500, color: C.inkSoft }}>{label}</span>
         {", "}
-        <span style={{ fontWeight: 700, color: C.ink }}>{name}</span>
+        <span style={{ fontWeight: 600, color: C.ink }}>{name}</span>
       </span>
     </span>
   );
@@ -3658,10 +3685,10 @@ function AuthScreen({ mobile, initialMode = "login" }) {
 
   const inputStyle = {
     width: "100%",
-    border: `1.5px solid ${C.line}`,
-    borderRadius: 10,
+    border: `1px solid ${C.line}`,
+    borderRadius: 8,
     padding: "10px 12px 10px 34px",
-    fontFamily: "Inter, sans-serif",
+    fontFamily: FONT_SANS,
     fontSize: 13.5,
     color: C.ink,
     outline: "none",
@@ -3794,11 +3821,11 @@ function AuthScreen({ mobile, initialMode = "login" }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Inter, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: FONT_SANS }}>
       <style>{GLOBAL_STYLE}</style>
-      <div style={{ width: 380, maxWidth: "100%", background: C.card, borderRadius: 16, padding: mobile ? 22 : 24, boxShadow: "0 16px 40px rgba(32,38,31,0.14)" }}>
+      <div style={{ width: 380, maxWidth: "100%", background: C.card, borderRadius: 16, padding: mobile ? 22 : 24, border: `1px solid ${C.line}`, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
+          <div style={{ fontFamily: FONT_SANS, fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
           <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 4 }}>{subtitles[mode]}</div>
         </div>
 
@@ -3895,24 +3922,24 @@ function AuthScreen({ mobile, initialMode = "login" }) {
               <button
                 type="button"
                 onClick={() => switchMode("forgot")}
-                style={{ border: "none", background: "transparent", color: C.teal, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}
+                style={{ border: "none", background: "transparent", color: C.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}
               >
                 Quên mật khẩu?
               </button>
             </div>
           )}
 
-          <button
+          <button className={loading ? undefined : "btn-primary"}
             type="submit"
             disabled={loading}
             style={{
               width: "100%",
               border: "none",
-              borderRadius: 10,
+              borderRadius: 8,
               padding: "11px 14px",
-              background: loading ? C.line : C.ink,
-              color: loading ? C.inkFaint : C.paper,
-              fontFamily: "Inter, sans-serif",
+              background: loading ? C.line : C.accent,
+              color: loading ? C.inkFaint : "#FFFFFF",
+              fontFamily: FONT_SANS,
               fontWeight: 700,
               fontSize: 13.5,
               cursor: loading ? "not-allowed" : "pointer",
@@ -3931,11 +3958,11 @@ function AuthScreen({ mobile, initialMode = "login" }) {
         </form>
 
         {mode !== "reset" && (
-          <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, fontFamily: "Inter, sans-serif", color: C.inkFaint }}>
+          <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, fontFamily: FONT_SANS, color: C.inkFaint }}>
             {mode === "login" && (
               <>
                 Chưa có tài khoản?{" "}
-                <button onClick={() => switchMode("register")} style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                <button onClick={() => switchMode("register")} style={{ border: "none", background: "transparent", color: C.accent, fontWeight: 700, cursor: "pointer", padding: 0 }}>
                   Đăng ký
                 </button>
               </>
@@ -3943,13 +3970,13 @@ function AuthScreen({ mobile, initialMode = "login" }) {
             {mode === "register" && (
               <>
                 Đã có tài khoản?{" "}
-                <button onClick={() => switchMode("login")} style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                <button onClick={() => switchMode("login")} style={{ border: "none", background: "transparent", color: C.accent, fontWeight: 700, cursor: "pointer", padding: 0 }}>
                   Đăng nhập
                 </button>
               </>
             )}
             {mode === "forgot" && (
-              <button onClick={() => switchMode("login")} style={{ border: "none", background: "transparent", color: C.teal, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+              <button onClick={() => switchMode("login")} style={{ border: "none", background: "transparent", color: C.accent, fontWeight: 700, cursor: "pointer", padding: 0 }}>
                 ← Quay lại đăng nhập
               </button>
             )}
@@ -4408,8 +4435,7 @@ export default function App() {
   // nền; nếu lưu thất bại thì gỡ danh mục khỏi danh sách và báo lỗi.
   const addEventCategory = (name) => {
     const key = `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-    // +1 vì danh mục có sẵn "Cá nhân" đã dùng màu đầu tiên của bảng màu
-    const palette = CUSTOM_TYPE_PALETTE[(Object.keys(customEventTypes).length + 1) % CUSTOM_TYPE_PALETTE.length];
+    const palette = CUSTOM_TYPE_PALETTE[Object.keys(customEventTypes).length % CUSTOM_TYPE_PALETTE.length];
     const def = { label: name, color: palette.color, soft: palette.soft };
     setCustomEventTypes((prev) => ({ ...prev, [key]: def }));
     dbInsertCategory(key, def).catch((err) => {
@@ -4553,8 +4579,8 @@ export default function App() {
 
   const statusChartData = useMemo(
     () => [
-      { name: "Chưa thực hiện", value: stats.todo, color: C.amber },
-      { name: "Đang thực hiện", value: stats.doing, color: C.teal },
+      { name: "Chưa thực hiện", value: stats.todo, color: C.inkSoft },
+      { name: "Đang thực hiện", value: stats.doing, color: C.accent },
       { name: "Đã hoàn thành", value: stats.done, color: C.done },
     ],
     [stats]
@@ -4714,7 +4740,7 @@ export default function App() {
   // Chưa kiểm tra xong phiên đăng nhập ban đầu — tránh nháy màn hình đăng nhập rồi lại vào app
   if (!authChecked) {
     return (
-      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_SANS, color: C.inkSoft }}>
         <style>{GLOBAL_STYLE}</style>
         <Loader2 size={22} className="spin" style={{ color: C.inkFaint }} />
       </div>
@@ -4728,7 +4754,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", color: C.inkSoft }}>
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_SANS, color: C.inkSoft }}>
         <style>{GLOBAL_STYLE}</style>
         Đang tải dữ liệu...
       </div>
@@ -4737,7 +4763,7 @@ export default function App() {
 
   if (loadError) {
     return (
-      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 24, textAlign: "center" }}>
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_SANS, padding: 24, textAlign: "center" }}>
         <style>{GLOBAL_STYLE}</style>
         <div style={{ maxWidth: 420 }}>
           <div style={{ fontWeight: 700, color: C.danger, marginBottom: 8 }}>Không tải được dữ liệu</div>
@@ -4760,79 +4786,100 @@ export default function App() {
     const header = (
       <div
         style={{
-          padding: realDevice ? "calc(env(safe-area-inset-top, 0px) + 12px) 16px 10px" : "16px 16px 10px",
+          flexShrink: 0,
+          minHeight: 56,
+          padding: realDevice ? "env(safe-area-inset-top, 0px) 16px 0" : "0 16px",
+          boxSizing: "border-box",
+          borderBottom: `1px solid ${C.line}`,
+          background: "rgba(250,249,245,0.95)",
+          backdropFilter: "blur(4px)",
+          WebkitBackdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 17, color: C.ink, minWidth: 0 }}>Việc Của Tôi</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {IS_DEV && <DeviceToggle device={device} onChange={handleDeviceChange} compact />}
-            <button
-              onClick={handleSignOut}
-              aria-label="Đăng xuất"
-              title="Đăng xuất"
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: `1px solid ${C.line}`,
-                background: C.card,
-                color: C.danger,
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              <LogOut size={15} />
-            </button>
-          </div>
+        <div style={{ minWidth: 0, padding: "8px 0" }}>
+          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.ink, lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {titleFor(view)}
+          </h1>
+          <Greeting name={displayName} size={11} style={{ fontSize: 11.5, marginTop: 2, color: C.inkSoft }} />
         </div>
-        <Greeting name={displayName} size={11} style={{ fontSize: 12, marginTop: 6 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {IS_DEV && <DeviceToggle device={device} onChange={handleDeviceChange} compact />}
+          <button
+            onClick={handleSignOut}
+            aria-label="Đăng xuất"
+            title="Đăng xuất"
+            className="icon-btn"
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: `1px solid ${C.line}`,
+              background: C.card,
+              color: C.danger,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     );
 
     const bottomNav = (
-      <div
+      <nav
+        aria-label="Điều hướng di động"
         style={{
-          display: "flex",
+          flexShrink: 0,
           borderTop: `1px solid ${C.line}`,
-          background: C.card,
-          padding: realDevice ? "8px 6px calc(env(safe-area-inset-bottom, 0px) + 8px)" : "8px 6px",
-          gap: 4,
+          background: "rgba(250,249,245,0.95)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          paddingBottom: realDevice ? "env(safe-area-inset-bottom, 0px)" : 0,
         }}
       >
-        {navItems.map(({ key, label, Icon }) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            style={{
-              flex: 1,
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              padding: "6px 0",
-              color: view === key ? C.teal : C.inkFaint,
-            }}
-          >
-            <Icon size={18} strokeWidth={2.3} />
-            <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
-          </button>
-        ))}
-      </div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${navItems.length}, 1fr)`, height: 64, alignItems: "center" }}>
+          {navItems.map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                minHeight: 44,
+                padding: 0,
+                color: view === key ? C.accent : C.inkSoft,
+              }}
+            >
+              <Icon size={20} strokeWidth={2} />
+              <span style={{ fontSize: 10, fontWeight: 500, maxWidth: "100%", padding: "0 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
     );
 
     if (realDevice) {
       return (
-        <div style={{ position: "fixed", inset: 0, background: C.paper, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: "Inter, sans-serif" }}>
+        <div style={{ position: "fixed", inset: 0, background: C.paper, display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FONT_SANS }}>
           <style>{GLOBAL_STYLE}</style>
           {header}
-          <div style={{ flex: 1, overflowY: "auto", padding: "6px 16px 16px" }}>{renderView()}</div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehaviorY: "none", padding: "20px 16px 24px" }}>
+            <div key={view} className="animate-tab-in">{renderView()}</div>
+          </div>
           {bottomNav}
           {modal}
           {lightbox}
@@ -4842,7 +4889,7 @@ export default function App() {
 
     // ---- Preview trên desktop: giữ khung bezel điện thoại giả lập, giống hệt app "Sổ Tài Chính" ----
     return (
-      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", justifyContent: "center", padding: "24px 12px", fontFamily: "Inter, sans-serif" }}>
+      <div style={{ minHeight: "100vh", background: C.paper, display: "flex", justifyContent: "center", padding: "24px 12px", fontFamily: FONT_SANS }}>
         <style>{GLOBAL_STYLE}</style>
         <div
           style={{
@@ -4851,14 +4898,16 @@ export default function App() {
             background: C.paper,
             borderRadius: 34,
             border: `8px solid ${C.ink}`,
-            boxShadow: "0 12px 34px rgba(32,38,31,0.22)",
+            boxShadow: "0 12px 34px rgba(28,27,24,0.22)",
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",
           }}
         >
           {header}
-          <div style={{ height: 560, overflowY: "auto", padding: "6px 16px 16px" }}>{renderView()}</div>
+          <div style={{ height: 560, overflowY: "auto", padding: "20px 16px 24px" }}>
+            <div key={view} className="animate-tab-in">{renderView()}</div>
+          </div>
           {bottomNav}
         </div>
         {modal}
@@ -4868,94 +4917,117 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.paper, fontFamily: "Inter, sans-serif", display: "flex", justifyContent: "center", padding: "28px 32px" }}>
+    <div className="app-shell" style={{ display: "flex", overflow: "hidden", background: C.paper, color: C.ink, fontFamily: FONT_SANS }}>
       <style>{GLOBAL_STYLE}</style>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", gap: 24 }}>
-        <aside style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", gap: 18 }}>
-          <div>
-            <div style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Việc Của Tôi</div>
-            <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>Danh sách cá nhân</div>
-          </div>
 
-          <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {navItems.map(({ key, label, Icon }) => (
+      {/* Thanh bên trái cố định */}
+      <aside style={{ width: 256, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: `1px solid ${C.line}`, background: C.paper }}>
+        <div style={{ height: 56, flexShrink: 0, display: "flex", alignItems: "center", padding: "0 16px", borderBottom: `1px solid ${C.line}` }}>
+          <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Việc Của Tôi</span>
+        </div>
+
+        <nav aria-label="Điều hướng chính" style={{ flex: 1, padding: "16px 12px", display: "flex", flexDirection: "column", gap: 4, overflowY: "auto" }}>
+          {navItems.map(({ key, label, Icon }) => {
+            const isActive = view === key;
+            const count = key === "tasks" ? activeTasks.length : key === "archive" ? doneTasks.length : key === "calendar" ? upcomingEventCount : 0;
+            return (
               <button
                 key={key}
                 onClick={() => setView(key)}
+                aria-label={label}
+                aria-current={isActive ? "page" : undefined}
+                className={`nav-item${isActive ? " is-active" : ""}`}
                 style={{
+                  width: "100%",
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
-                  border: "none",
+                  minHeight: 40,
+                  padding: "0 12px",
+                  borderRadius: 8,
                   cursor: "pointer",
                   textAlign: "left",
-                  padding: "10px 14px",
-                  borderRadius: "10px 10px 0 0",
-                  background: view === key ? C.card : "transparent",
-                  color: view === key ? C.ink : C.inkSoft,
-                  fontFamily: "Inter, sans-serif",
-                  fontWeight: 600,
-                  fontSize: 13.5,
-                  boxShadow: view === key ? "0 1px 2px rgba(32,38,31,0.08)" : "none",
-                  position: "relative",
+                  fontFamily: FONT_SANS,
+                  fontSize: 14,
+                  fontWeight: isActive ? 600 : 500,
+                  background: isActive ? C.card : "transparent",
+                  border: `1px solid ${isActive ? C.line : "transparent"}`,
+                  color: isActive ? C.ink : C.inkSoft,
+                  transition: "background 0.15s, color 0.15s",
                 }}
               >
-                <Icon size={16} strokeWidth={2.3} />
-                {label}
-                {key === "tasks" && activeTasks.length > 0 && (
-                  <span style={{ marginLeft: "auto", fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>{activeTasks.length}</span>
-                )}
-                {key === "archive" && doneTasks.length > 0 && (
-                  <span style={{ marginLeft: "auto", fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>{doneTasks.length}</span>
-                )}
-                {key === "calendar" && upcomingEventCount > 0 && (
-                  <span style={{ marginLeft: "auto", fontFamily: "IBM Plex Mono, monospace", fontSize: 10.5, color: C.inkFaint }}>
-                    {upcomingEventCount}
-                  </span>
+                <Icon size={16} strokeWidth={2} style={{ flexShrink: 0, color: isActive ? C.accent : C.inkSoft }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                {count > 0 && (
+                  <span style={{ marginLeft: "auto", fontFamily: FONT_MONO, fontSize: 10.5, color: C.inkFaint }}>{count}</span>
                 )}
               </button>
-            ))}
-          </nav>
+            );
+          })}
+        </nav>
 
-          {IS_DEV && (
-            <div>
-              <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6, fontWeight: 600 }}>GIAO DIỆN</div>
-              <DeviceToggle device={device} onChange={handleDeviceChange} />
-            </div>
-          )}
-        </aside>
-
-        <main style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-            <h2 style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 24, color: C.ink, margin: "4px 0 18px" }}>{titleFor(view)}</h2>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
-              <Greeting name={displayName} size={13} style={{ fontSize: 13 }} />
-              <button
-                onClick={handleSignOut}
-                title="Đăng xuất"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  border: `1px solid ${C.line}`,
-                  background: C.card,
-                  borderRadius: 8,
-                  padding: "7px 12px",
-                  color: C.danger,
-                  cursor: "pointer",
-                  fontFamily: "Inter, sans-serif",
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                }}
-              >
-                <LogOut size={14} />
-                Đăng xuất
-              </button>
-            </div>
+        {IS_DEV && (
+          <div style={{ padding: 12, borderTop: `1px solid ${C.line}` }}>
+            <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6, fontWeight: 600 }}>GIAO DIỆN</div>
+            <DeviceToggle device={device} onChange={handleDeviceChange} />
           </div>
-          {renderView()}
-        </main>
+        )}
+      </aside>
+
+      {/* Cột nội dung: thanh tiêu đề cố định + vùng nội dung cuộn riêng */}
+      <div style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", flexDirection: "column" }}>
+        <header
+          style={{
+            flexShrink: 0,
+            height: 56,
+            padding: "0 32px",
+            borderBottom: `1px solid ${C.line}`,
+            background: "rgba(250,249,245,0.95)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            zIndex: 30,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{titleFor(view)}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <Greeting name={displayName} size={13} style={{ fontSize: 13 }} />
+            <button
+              onClick={handleSignOut}
+              title="Đăng xuất"
+              className="ghost-btn"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                minHeight: 40,
+                border: `1px solid ${C.line}`,
+                background: C.card,
+                borderRadius: 8,
+                padding: "0 12px",
+                color: C.danger,
+                cursor: "pointer",
+                fontFamily: FONT_SANS,
+                fontSize: 12,
+                fontWeight: 500,
+              }}
+            >
+              <LogOut size={14} />
+              Đăng xuất
+            </button>
+          </div>
+        </header>
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehaviorY: "none" }}>
+          <main key={view} className="animate-tab-in" style={{ maxWidth: 1280, width: "100%", margin: "0 auto", boxSizing: "border-box", padding: "20px 32px 32px" }}>
+            {renderView()}
+          </main>
+        </div>
       </div>
+
       {modal}
       {lightbox}
     </div>
